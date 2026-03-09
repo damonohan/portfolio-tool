@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm install plotly.js react-plotly.js @types/react-plotly.js)",
+      "Bash(pip install -r requirements.txt -q)",
+      "Bash(pip3 install -r requirements.txt -q)",
+      "Bash(python3 -m venv /Users/rob/portfolio/backend/.venv)",
+      "Bash(/Users/rob/portfolio/backend/.venv/bin/pip install -q -r /Users/rob/portfolio/backend/requirements.txt)",
+      "Bash(/Users/rob/portfolio/backend/.venv/bin/pip install -q fastapi uvicorn python-multipart openpyxl pandas numpy scipy plotly reportlab pillow)",
+      "Bash(.venv/bin/python3 -c \"import fastapi, pandas, numpy, scipy, plotly; print\\(''all ok''\\)\")",
+      "Bash(.venv/bin/pip install -q kaleido)",
+      "Bash(.venv/bin/python3 -c \"import kaleido; print\\(''kaleido ok''\\)\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python3 -c \"import openpyxl; wb = openpyxl.load_workbook\\(''/Users/rob/portfolio/Test2.xlsx''\\); print\\(wb.sheetnames\\)\")",
+      "Bash(/Users/rob/portfolio/backend/.venv/bin/python3 -c \"import openpyxl; wb = openpyxl.load_workbook\\(''/Users/rob/portfolio/Test2.xlsx''\\); print\\(wb.sheetnames\\)\")",
+      "Bash(/Users/rob/portfolio/backend/.venv/bin/python3 -c \":*)",
+      "Bash(curl -s -X POST http://localhost:8000/upload -F \"file=@/Users/rob/portfolio/Test2.xlsx\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''Assets:'', len\\(d.get\\(''asset_cols'',[]\\)\\), ''Notes:'', len\\(d.get\\(''note_ids'',[]\\)\\), ''Rows:'', d.get\\(''row_count''\\), ''Error:'', d.get\\(''detail'',''none''\\)\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/reset)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''Assets:'', d.get\\(''asset_cols'',[]\\), ''\\\\nNotes:'', d.get\\(''note_ids'',[]\\)\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(curl -s http://localhost:8000/histogram/0)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''data traces:'', len\\(d[''data'']\\), ''| title:'', d[''layout''][''title''][''text'']\\)\")",
+      "Bash(curl -s -X POST \"http://localhost:8000/dev/load-test-file\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''Assets:'', len\\(d.get\\(''asset_cols'',[]\\)\\), ''Notes:'', len\\(d.get\\(''note_ids'',[]\\)\\), ''Rows:'', d.get\\(''row_count''\\)\\)\")",
+      "Bash(BASE=\"http://localhost:8000\")",
+      "Bash(__NEW_LINE_0885ad300244aecb__ curl -s -X POST $BASE/asset-metadata -H \"Content-Type: application/json\" -d '{:*)",
+      "Bash(python3 -c \"import sys,json; print\\(''Meta:'', json.load\\(sys.stdin\\)\\)\")",
+      "Bash(__NEW_LINE_7a807f9c336e55ee__ curl -s -X POST $BASE/portfolio/save -H \"Content-Type: application/json\" -d '{:*)",
+      "Bash(python3 -c \"import sys,json; print\\(''Port:'', json.load\\(sys.stdin\\)\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/asset-metadata -H \"Content-Type: application/json\" -d '{\"\"assets\"\":[{\"\"asset\"\":\"\"US Large Cap Growth\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Large Cap Value\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Mid Cap Growth\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Mid Cap Value\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Small Cap Growth\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Small Cap Value\"\",\"\"yield_pct\"\":2.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"Foreign Industrialized Markets Stocks\"\",\"\"yield_pct\"\":2.5,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"Emerging Markets Stocks\"\",\"\"yield_pct\"\":3.0,\"\"bucket\"\":\"\"Equity\"\"},{\"\"asset\"\":\"\"US Investment Grade Bonds\"\",\"\"yield_pct\"\":4.0,\"\"bucket\"\":\"\"Fixed Income\"\"},{\"\"asset\"\":\"\"US High Yield Bonds\"\",\"\"yield_pct\"\":5.0,\"\"bucket\"\":\"\"Fixed Income\"\"},{\"\"asset\"\":\"\"Non-US Bonds\"\",\"\"yield_pct\"\":3.5,\"\"bucket\"\":\"\"Fixed Income\"\"},{\"\"asset\"\":\"\"Cash\"\",\"\"yield_pct\"\":0.5,\"\"bucket\"\":\"\"Cash\"\"},{\"\"asset\"\":\"\"Commodities\"\",\"\"yield_pct\"\":1.0,\"\"bucket\"\":\"\"Alternative\"\"},{\"\"asset\"\":\"\"Real Estate\"\",\"\"yield_pct\"\":3.0,\"\"bucket\"\":\"\"Alternative\"\"}]}')",
+      "Bash(curl -s -X POST http://localhost:8000/portfolio/save -H \"Content-Type: application/json\" -d '{\"\"name\"\":\"\"60-40 Balanced\"\",\"\"weights\"\":{\"\"US Large Cap Growth\"\":20,\"\"US Large Cap Value\"\":10,\"\"US Mid Cap Growth\"\":5,\"\"US Mid Cap Value\"\":5,\"\"US Small Cap Growth\"\":5,\"\"US Small Cap Value\"\":5,\"\"Foreign Industrialized Markets Stocks\"\":10,\"\"Emerging Markets Stocks\"\":5,\"\"US Investment Grade Bonds\"\":15,\"\"US High Yield Bonds\"\":5,\"\"Non-US Bonds\"\":5,\"\"Cash\"\":5,\"\"Commodities\"\":2.5,\"\"Real Estate\"\":2.5}}')"
+    ]
+  }
+}
