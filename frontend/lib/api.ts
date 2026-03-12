@@ -128,9 +128,49 @@ export const api = {
       risk_free: number;
     }>(`/portfolio-summary?horizon=${horizon}&risk_free=${riskFree}`),
 
+  portfolioCandidates: (horizon = 1, riskFree = 2.0) =>
+    req<{
+      portfolios: PortfolioCandidate[];
+      horizon: number;
+      risk_free: number;
+    }>(`/portfolio-candidates?horizon=${horizon}&risk_free=${riskFree}`),
+
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
 };
+
+export interface CandidateMetrics {
+  alloc_pct: number;
+  sharpe: number;
+  pct_neg: number;
+  shorty: number;
+  expected_income_pct: number;
+  mean: number;
+  std: number;
+}
+
+export interface NoteCandidate {
+  note_id: string;
+  note_type: string;
+  yield_pct: number;
+  candidates: CandidateMetrics[];
+}
+
+export interface BaseMetrics {
+  sharpe: number;
+  pct_neg: number;
+  shorty: number;
+  expected_income_pct: number;
+  mean: number;
+  std: number;
+}
+
+export interface PortfolioCandidate {
+  name: string;
+  allocations: { asset: string; weight_pct: number }[];
+  base: BaseMetrics;
+  notes: NoteCandidate[];
+}
 
 export interface Improvement {
   note_id: string;

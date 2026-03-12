@@ -879,6 +879,112 @@ def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
     return {"portfolios": result, "notes": notes, "horizon": horizon, "risk_free": risk_free}
 
 
+# ── Portfolio candidates (pre-framework, all note × alloc combos) ─────────────
+
+@app.get("/portfolio-candidates")
+def portfolio_candidates(horizon: int = 1, risk_free: float = 2.0):
+    """
+    For each saved portfolio, return:
+      - base metrics
+      - for each classified note at allocations 5%–40% in 5% steps:
+          blended metrics (all assets reduced proportionally, no bucket filter)
+    """
+    df = _require_df()
+    if not SESSION["portfolios"]:
+        raise HTTPException(400, "No portfolios saved yet.")
+    if not SESSION["asset_buckets"]:
+        raise HTTPException(400, "Asset metadata not set. Complete step 3 first.")
+    if not SESSION["note_meta"]:
+        raise HTTPException(400, "Notes not classified yet. Complete step 2 first.")
+    if horizon not in (1, 2, 3):
+        raise HTTPException(400, "Horizon must be 1, 2, or 3.")
+
+    # All asset + note columns needed
+    all_asset_cols = SESSION["asset_cols"]
+    note_col_map   = SESSION["note_col_map"]   # {note_id: raw_col_name}
+    note_meta      = SESSION["note_meta"]       # {note_id: {type, yield_pct}}
+    asset_yields   = SESSION["asset_yields"]    # {asset: yield_%}
+
+    # Pre-compute cumulative returns for ALL columns at once
+    note_cols  = list(note_col_map.values())
+    all_cols   = all_asset_cols + note_cols
+    cum_df     = compute_cumulative_returns(df, all_cols, horizon)
+
+    alloc_steps = [round(i * 0.05, 2) for i in range(1, 9)]  # 0.05 … 0.40
+
+    result = []
+    for port_name, port in SESSION["portfolios"].items():
+        weights    = port["weights"]           # {asset: fraction}
+        asset_cols = list(weights.keys())
+
+        # Base portfolio metrics
+        base_ret    = portfolio_returns(cum_df, weights)
+        base_m      = compute_metrics(base_ret, risk_free)
+        base_income = expected_income(weights, asset_yields)
+
+        allocations = sorted(
+            [{"asset": a, "weight_pct": round(w * 100, 2)} for a, w in weights.items()],
+            key=lambda x: -x["weight_pct"],
+        )
+
+        note_rows = []
+        for note_id, meta in note_meta.items():
+            note_col   = note_col_map.get(note_id)
+            if note_col is None or note_col not in cum_df.columns:
+                continue
+            note_type  = meta.get("type", "")
+            note_yield = meta.get("yield_pct", 0.0) / 100.0  # convert % → fraction
+
+            candidates = []
+            for alloc in alloc_steps:
+                # Reduce ALL assets proportionally to make room for the note
+                new_weights = {a: w * (1.0 - alloc) for a, w in weights.items()}
+                nw_vec      = np.array([new_weights[a] for a in asset_cols])
+
+                asset_ret  = cum_df[asset_cols].values @ nw_vec
+                note_ret   = cum_df[note_col].values * alloc
+                port_ret   = asset_ret + note_ret
+
+                m          = compute_metrics(port_ret, risk_free)
+                new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0)
+                                 for a in asset_cols)
+                if note_type == "Income":
+                    new_income += alloc * note_yield * 100  # back to % units
+
+                candidates.append({
+                    "alloc_pct":            int(round(alloc * 100)),
+                    "sharpe":               round(m["sharpe"],   4),
+                    "pct_neg":              round(m["pct_neg"],  4),
+                    "shorty":               round(m["shorty"],   4),
+                    "expected_income_pct":  round(new_income,    4),
+                    "mean":                 round(m["mean"],     4),
+                    "std":                  round(m["std"],      4),
+                })
+
+            note_rows.append({
+                "note_id":    note_id,
+                "note_type":  note_type,
+                "yield_pct":  meta.get("yield_pct", 0.0),
+                "candidates": candidates,
+            })
+
+        result.append({
+            "name":        port_name,
+            "allocations": allocations,
+            "base": {
+                "sharpe":               round(base_m["sharpe"],   4),
+                "pct_neg":              round(base_m["pct_neg"],  4),
+                "shorty":               round(base_m["shorty"],   4),
+                "expected_income_pct":  round(base_income,        4),
+                "mean":                 round(base_m["mean"],     4),
+                "std":                  round(base_m["std"],      4),
+            },
+            "notes": note_rows,
+        })
+
+    return {"portfolios": result, "horizon": horizon, "risk_free": risk_free}
+
+
 # ── Session state getter ──────────────────────────────────────────────────────
 
 @app.get("/session-state")
