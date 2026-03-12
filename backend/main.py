@@ -151,14 +151,24 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(400, "Only .xlsx files are accepted.")
 
     contents = await file.read()
+    _xl = pd.ExcelFile(io.BytesIO(contents))
+    _data_sheet = next(
+        (s for s in _xl.sheet_names if s.strip().lower() in ("sheet1", "data", "results")),
+        None,
+    )
+    if _data_sheet is None:
+        raise HTTPException(
+            400,
+            f"Could not find a data sheet. Expected a sheet named 'Sheet1', 'Data', or 'Results'. "
+            f"Found: {', '.join(_xl.sheet_names)}"
+        )
     try:
-        df = pd.read_excel(io.BytesIO(contents), sheet_name="Sheet1")
+        df = pd.read_excel(_xl, sheet_name=_data_sheet)
     except Exception as e:
-        raise HTTPException(400, f"Could not parse Sheet1: {e}")
+        raise HTTPException(400, f"Could not parse sheet '{_data_sheet}': {e}")
 
     # ── Auto-classification: parse Tracking / Notes sheet if present ──────────
     note_suggestions: dict[str, dict] = {}
-    _xl = pd.ExcelFile(io.BytesIO(contents))
     _tracking_sheet = next(
         (s for s in _xl.sheet_names if s.strip().lower() in ("tracking", "notes")),
         None,
