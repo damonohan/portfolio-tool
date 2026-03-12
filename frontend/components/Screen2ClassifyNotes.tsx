@@ -6,44 +6,74 @@ import { api } from "@/lib/api";
 const NOTE_TYPES = ["Income", "Growth", "Digital", "Absolute", "MLCD", "PPN"] as const;
 
 interface NoteRow {
-  note_id: string;
-  note_type: string;
-  yield_pct: number;
+  note_id:       string;
+  note_type:     string;
+  yield_pct:     number;
+  auto_detected: boolean; // came from Tracking/Notes sheet, not yet manually changed
 }
 
 interface Props {
-  noteIds: string[];
-  onContinue: () => void;
+  noteIds:          string[];
+  noteSuggestions:  Record<string, { type: string; yield_pct: number }>;
+  onContinue:       () => void;
 }
 
-export default function Screen2ClassifyNotes({ noteIds, onContinue }: Props) {
+export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onContinue }: Props) {
   const [rows, setRows] = useState<NoteRow[]>(
-    noteIds.map((id) => ({ note_id: id, note_type: "", yield_pct: 0 }))
+    noteIds.map((id) => {
+      const s = noteSuggestions[id];
+      return {
+        note_id:       id,
+        note_type:     s?.type     ?? "",
+        yield_pct:     s?.yield_pct ?? 0,
+        auto_detected: !!(s?.type),
+      };
+    })
   );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
+  const [error,   setError]   = useState("");
+  const [saved,   setSaved]   = useState(false);
 
   // Pre-populate from saved session state when navigating back
   useEffect(() => {
     api.sessionState().then((state) => {
-      const meta = state.note_meta ?? {};
-      if (Object.keys(meta).length === 0) return;
-      setRows(noteIds.map((id) => ({
-        note_id:   id,
-        note_type: meta[id]?.type ?? "",
-        yield_pct: meta[id]?.yield_pct ?? 0,
-      })));
-      setSaved(true);
+      const meta        = state.note_meta        ?? {};
+      const suggestions = state.note_suggestions ?? {};
+
+      if (Object.keys(meta).length > 0) {
+        // Previously confirmed classifications take priority
+        setRows(noteIds.map((id) => ({
+          note_id:       id,
+          note_type:     meta[id]?.type      ?? "",
+          yield_pct:     meta[id]?.yield_pct ?? 0,
+          auto_detected: false,
+        })));
+        setSaved(true);
+      } else if (Object.keys(suggestions).length > 0) {
+        // Auto-suggestions from Tracking sheet (not yet saved by user)
+        setRows(noteIds.map((id) => {
+          const s = suggestions[id];
+          return {
+            note_id:       id,
+            note_type:     s?.type      ?? "",
+            yield_pct:     s?.yield_pct ?? 0,
+            auto_detected: !!(s?.type),
+          };
+        }));
+      }
     }).catch(() => {});
   }, [noteIds]);
 
   const update = (idx: number, field: keyof NoteRow, value: string | number) => {
     setSaved(false);
     setRows((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r))
+      prev.map((r, i) =>
+        i === idx ? { ...r, [field]: value, auto_detected: false } : r
+      )
     );
   };
+
+  const autoCount = rows.filter((r) => r.auto_detected && r.note_type).length;
 
   const handleSave = async () => {
     const unclassified = rows.filter((r) => !r.note_type);
@@ -74,9 +104,19 @@ export default function Screen2ClassifyNotes({ noteIds, onContinue }: Props) {
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <h2 className="text-xl font-bold text-slate-800 mb-1">Classify Notes</h2>
-        <p className="text-sm text-slate-500 mb-5">
+        <p className="text-sm text-slate-500 mb-4">
           Assign a type to each detected note. Income notes require an expected annual yield.
         </p>
+
+        {autoCount > 0 && (
+          <div className="mb-4 flex items-start gap-2 bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-3 rounded-lg">
+            <span className="text-base">✦</span>
+            <span>
+              <strong>{autoCount} of {rows.length} notes</strong> were auto-classified from the
+              Tracking sheet. Review and adjust as needed before saving.
+            </span>
+          </div>
+        )}
 
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full text-sm">
@@ -98,12 +138,21 @@ export default function Screen2ClassifyNotes({ noteIds, onContinue }: Props) {
                 <tr key={row.note_id} className={idx % 2 === 0 ? "" : "bg-slate-50"}>
                   <td className="px-4 py-3 border-b border-slate-100 font-mono font-medium">
                     {row.note_id}
+                    {row.auto_detected && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-medium">
+                        auto
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 border-b border-slate-100">
                     <select
                       value={row.note_type}
                       onChange={(e) => update(idx, "note_type", e.target.value)}
-                      className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-36"
+                      className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-36 ${
+                        row.auto_detected
+                          ? "border-blue-300 bg-blue-50"
+                          : "border-slate-300"
+                      }`}
                     >
                       <option value="">— select —</option>
                       {NOTE_TYPES.map((t) => (
@@ -118,10 +167,14 @@ export default function Screen2ClassifyNotes({ noteIds, onContinue }: Props) {
                       <input
                         type="number"
                         min={0}
-                        step={0.1}
+                        step={0.01}
                         value={row.yield_pct}
                         onChange={(e) => update(idx, "yield_pct", parseFloat(e.target.value) || 0)}
-                        className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className={`border rounded-lg px-2 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          row.auto_detected
+                            ? "border-blue-300 bg-blue-50"
+                            : "border-slate-300"
+                        }`}
                       />
                     ) : (
                       <span className="text-slate-400">N/A</span>

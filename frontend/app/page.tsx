@@ -23,10 +23,11 @@ export default function Home() {
   const [maxStep, setMaxStep]   = useState(1);
 
   // Per-file state
-  const [assetCols, setAssetCols]   = useState<string[]>([]);
-  const [noteIds, setNoteIds]       = useState<string[]>([]);
-  const [noteMeta, setNoteMeta]     = useState<Record<string, { type: string; yield_pct: number }>>({});
-  const [portNames, setPortNames]   = useState<string[]>([]);
+  const [assetCols, setAssetCols]         = useState<string[]>([]);
+  const [noteIds, setNoteIds]             = useState<string[]>([]);
+  const [noteMeta, setNoteMeta]           = useState<Record<string, { type: string; yield_pct: number }>>({});
+  const [portNames, setPortNames]         = useState<string[]>([]);
+  const [noteSuggestions, setNoteSuggestions] = useState<Record<string, { type: string; yield_pct: number }>>({});
 
   // Framework — lifted so it survives back-navigation between steps 4 & 5
   const [framework, setFramework] = useState<Framework>({
@@ -89,9 +90,11 @@ export default function Home() {
     restoredPortfolios: number;
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
+    noteSuggestions: Record<string, { type: string; yield_pct: number }>;
   }) => {
     setAssetCols(data.assetCols);
     setNoteIds(data.noteIds);
+    setNoteSuggestions(data.noteSuggestions ?? {});
 
     // Figure out which step to jump to based on what was restored
     if (data.restoredPortfolios > 0 && data.restoredAssetMeta) {
@@ -167,7 +170,11 @@ export default function Home() {
         {step === 1 && <Screen1Upload onContinue={handleUpload} />}
 
         {step === 2 && (
-          <Screen2ClassifyNotes noteIds={noteIds} onContinue={handleClassified} />
+          <Screen2ClassifyNotes
+            noteIds={noteIds}
+            noteSuggestions={noteSuggestions}
+            onContinue={handleClassified}
+          />
         )}
 
         {step === 3 && (

@@ -92,32 +92,34 @@ def _db_save_session(fp: str) -> None:
 # ── In-memory session store ───────────────────────────────────────────────────
 
 SESSION: dict[str, Any] = {
-    "df":            None,
-    "asset_cols":    [],
-    "note_ids":      [],
-    "note_col_map":  {},
-    "note_meta":     {},
-    "asset_yields":  {},
-    "asset_buckets": {},
-    "portfolios":    {},
-    "base":          None,
-    "fingerprint":   "",     # current file fingerprint
+    "df":               None,
+    "asset_cols":       [],
+    "note_ids":         [],
+    "note_col_map":     {},
+    "note_meta":        {},
+    "asset_yields":     {},
+    "asset_buckets":    {},
+    "portfolios":       {},
+    "base":             None,
+    "fingerprint":      "",
+    "note_suggestions": {},   # auto-classified from Tracking/Notes sheet
 }
 
 
 def reset_session() -> None:
     global SESSION
     SESSION = {
-        "df":            None,
-        "asset_cols":    [],
-        "note_ids":      [],
-        "note_col_map":  {},
-        "note_meta":     {},
-        "asset_yields":  {},
-        "asset_buckets": {},
-        "portfolios":    {},
-        "base":          None,
-        "fingerprint":   "",
+        "df":               None,
+        "asset_cols":       [],
+        "note_ids":         [],
+        "note_col_map":     {},
+        "note_meta":        {},
+        "asset_yields":     {},
+        "asset_buckets":    {},
+        "portfolios":       {},
+        "base":             None,
+        "fingerprint":      "",
+        "note_suggestions": {},
     }
 
 
@@ -153,6 +155,39 @@ async def upload_file(file: UploadFile = File(...)):
         df = pd.read_excel(io.BytesIO(contents), sheet_name="Sheet1")
     except Exception as e:
         raise HTTPException(400, f"Could not parse Sheet1: {e}")
+
+    # ── Auto-classification: parse Tracking / Notes sheet if present ──────────
+    note_suggestions: dict[str, dict] = {}
+    _xl = pd.ExcelFile(io.BytesIO(contents))
+    _tracking_sheet = next(
+        (s for s in _xl.sheet_names if s.strip().lower() in ("tracking", "notes")),
+        None,
+    )
+    if _tracking_sheet:
+        try:
+            tr = pd.read_excel(_xl, sheet_name=_tracking_sheet, header=0)
+            tr.columns = [str(c).strip() for c in tr.columns]
+            if "NoteId" in tr.columns and "Note Type" in tr.columns:
+                for _, row in tr.iterrows():
+                    nid = str(int(row["NoteId"])) if pd.notna(row["NoteId"]) else None
+                    if not nid:
+                        continue
+                    raw_type = str(row.get("Note Type", "")).strip()
+                    note_type = raw_type if raw_type in VALID_TYPES else ""
+                    yield_pct = 0.0
+                    if note_type == "Income":
+                        q = row.get("Quote Used")
+                        if pd.notna(q):
+                            try:
+                                yield_pct = float(q)
+                            except (ValueError, TypeError):
+                                yield_pct = 0.0
+                    note_suggestions[nid] = {
+                        "type":      note_type,
+                        "yield_pct": yield_pct,
+                    }
+        except Exception:
+            pass  # non-fatal — user classifies manually
 
     # Validate required columns
     if "Simulation" not in df.columns or "Period" not in df.columns:
@@ -210,12 +245,13 @@ async def upload_file(file: UploadFile = File(...)):
     saved = db.get(fp, {})
     restored_portfolios = 0
 
-    SESSION["df"]           = df
-    SESSION["asset_cols"]   = asset_cols
-    SESSION["note_ids"]     = note_ids
-    SESSION["note_col_map"] = note_col_map
-    SESSION["fingerprint"]  = fp
-    SESSION["base"]         = None
+    SESSION["df"]               = df
+    SESSION["asset_cols"]       = asset_cols
+    SESSION["note_ids"]         = note_ids
+    SESSION["note_col_map"]     = note_col_map
+    SESSION["fingerprint"]      = fp
+    SESSION["base"]             = None
+    SESSION["note_suggestions"] = note_suggestions
 
     if saved:
         # Restore only data that matches the current asset/note structure
@@ -261,6 +297,7 @@ async def upload_file(file: UploadFile = File(...)):
         "restored_portfolios":  restored_portfolios,
         "restored_note_meta":   bool(SESSION["note_meta"]),
         "restored_asset_meta":  bool(SESSION["asset_buckets"]),
+        "note_suggestions":     note_suggestions,
         "preview":              preview,
     }
 
@@ -784,16 +821,17 @@ async def dev_load_test_file(path: str = "../Test2.xlsx"):
 @app.get("/session-state")
 def session_state():
     return {
-        "has_file":         SESSION["df"] is not None,
-        "fingerprint":      SESSION["fingerprint"],
-        "asset_cols":       SESSION["asset_cols"],
-        "note_ids":         SESSION["note_ids"],
-        "note_meta":        SESSION["note_meta"],
-        "asset_yields":     SESSION["asset_yields"],
-        "asset_buckets":    SESSION["asset_buckets"],
-        "portfolios":       list(SESSION["portfolios"].keys()),
-        "has_base":         SESSION["base"] is not None,
-        "has_improvements": bool(SESSION.get("improvements")),
+        "has_file":          SESSION["df"] is not None,
+        "fingerprint":       SESSION["fingerprint"],
+        "asset_cols":        SESSION["asset_cols"],
+        "note_ids":          SESSION["note_ids"],
+        "note_meta":         SESSION["note_meta"],
+        "asset_yields":      SESSION["asset_yields"],
+        "asset_buckets":     SESSION["asset_buckets"],
+        "portfolios":        list(SESSION["portfolios"].keys()),
+        "has_base":          SESSION["base"] is not None,
+        "has_improvements":  bool(SESSION.get("improvements")),
+        "note_suggestions":  SESSION.get("note_suggestions", {}),
     }
 
 

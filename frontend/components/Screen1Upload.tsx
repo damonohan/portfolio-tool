@@ -10,6 +10,7 @@ interface Props {
     restoredPortfolios: number;
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
+    noteSuggestions: Record<string, { type: string; yield_pct: number }>;
   }) => void;
 }
 
@@ -190,6 +191,7 @@ export default function Screen1Upload({ onContinue }: Props) {
                 restoredPortfolios: result.restored_portfolios,
                 restoredNoteMeta:   result.restored_note_meta,
                 restoredAssetMeta:  result.restored_asset_meta,
+                noteSuggestions:    result.note_suggestions ?? {},
               })
             }
           >

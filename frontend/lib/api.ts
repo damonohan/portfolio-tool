@@ -23,6 +23,7 @@ export const api = {
       restored_portfolios: number;
       restored_note_meta: boolean;
       restored_asset_meta: boolean;
+      note_suggestions: Record<string, { type: string; yield_pct: number }>;
       preview: Record<string, unknown>[];
     }>("/upload", { method: "POST", body: fd });
   },
@@ -107,6 +108,7 @@ export const api = {
       portfolios: string[];
       has_base: boolean;
       has_improvements: boolean;
+      note_suggestions: Record<string, { type: string; yield_pct: number }>;
     }>("/session-state"),
 
   exportCsvUrl: () => `${BASE}/export/csv`,
