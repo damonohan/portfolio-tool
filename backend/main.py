@@ -826,6 +826,59 @@ async def dev_load_test_file(path: str = "../Test2.xlsx"):
     return {"asset_cols": asset_cols, "note_ids": note_ids, "row_count": len(df)}
 
 
+# ── Portfolio summary (pre-framework overview) ────────────────────────────────
+
+@app.get("/portfolio-summary")
+def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
+    """Return allocation breakdown + base metrics for every saved portfolio."""
+    df = _require_df()
+    if not SESSION["portfolios"]:
+        raise HTTPException(400, "No portfolios saved yet.")
+    if not SESSION["asset_buckets"]:
+        raise HTTPException(400, "Asset metadata not set. Complete step 3 first.")
+    if horizon not in (1, 2, 3):
+        raise HTTPException(400, "Horizon must be 1, 2, or 3.")
+
+    result = []
+    for name, port in SESSION["portfolios"].items():
+        weights    = port["weights"]
+        asset_cols = list(weights.keys())
+
+        cum_df    = compute_cumulative_returns(df, asset_cols, horizon)
+        final_ret = portfolio_returns(cum_df, weights)
+        metrics   = compute_metrics(final_ret, risk_free)
+        inc_pct   = expected_income(weights, SESSION["asset_yields"])
+
+        # Build allocation rows sorted descending by weight
+        allocations = sorted(
+            [{"asset": a, "weight_pct": round(w * 100, 2)} for a, w in weights.items()],
+            key=lambda x: -x["weight_pct"],
+        )
+
+        result.append({
+            "name":                name,
+            "allocations":         allocations,
+            "sharpe":              round(metrics["sharpe"],   4),
+            "pct_neg":             round(metrics["pct_neg"],  4),
+            "shorty":              round(metrics["shorty"],   4),
+            "expected_income_pct": round(inc_pct,             4),
+            "mean":                round(metrics["mean"],     4),
+            "std":                 round(metrics["std"],      4),
+        })
+
+    # Also return classified notes for display
+    notes = [
+        {
+            "note_id":   nid,
+            "note_type": meta.get("type",      ""),
+            "yield_pct": meta.get("yield_pct", 0.0),
+        }
+        for nid, meta in SESSION["note_meta"].items()
+    ]
+
+    return {"portfolios": result, "notes": notes, "horizon": horizon, "risk_free": risk_free}
+
+
 # ── Session state getter ──────────────────────────────────────────────────────
 
 @app.get("/session-state")

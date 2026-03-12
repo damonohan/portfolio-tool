@@ -4,6 +4,7 @@ const STEPS = [
   "Upload",
   "Classify Notes",
   "Portfolio Builder",
+  "Portfolio Summary",
   "Analysis",
   "Improvements",
 ];

@@ -6,6 +6,7 @@ import StepNav from "@/components/StepNav";
 import Screen1Upload from "@/components/Screen1Upload";
 import Screen2ClassifyNotes from "@/components/Screen2ClassifyNotes";
 import Screen3PortfolioBuilder from "@/components/Screen3PortfolioBuilder";
+import Screen4PortfolioSummary from "@/components/Screen4PortfolioSummary";
 import Screen4Analysis from "@/components/Screen4Analysis";
 import Screen5Improvements from "@/components/Screen5Improvements";
 
@@ -57,7 +58,7 @@ export default function Home() {
       if (portsDone && bucketsDone) targetStep = 4;
       else if (notesDone)            targetStep = 3;
 
-      if (state.has_base) targetStep = 5;
+      if (state.has_base) targetStep = 6;
 
       if (notesDone) setNoteMeta(state.note_meta);
       if (portsDone) setPortNames(state.portfolios);
@@ -130,10 +131,10 @@ export default function Home() {
 
   const handleFrameworkDone = (fw: Framework) => {
     setFramework(fw);
-    advanceTo(5);
+    advanceTo(6);
   };
 
-  // When navigating back to step 4 from step 5, keep maxStep at 5 so user can go forward again
+  // When navigating back to step 5 from step 6, keep maxStep at 6 so user can go forward again
   const handleStepClick = (s: number) => {
     setStep(s);
   };
@@ -187,6 +188,10 @@ export default function Home() {
         )}
 
         {step === 4 && (
+          <Screen4PortfolioSummary onContinue={() => advanceTo(5)} />
+        )}
+
+        {step === 5 && (
           <Screen4Analysis
             portfolioNames={portNames}
             initialFramework={framework}
@@ -194,7 +199,7 @@ export default function Home() {
           />
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <Screen5Improvements framework={framework} />
         )}
       </main>

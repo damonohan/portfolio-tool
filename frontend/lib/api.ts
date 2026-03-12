@@ -111,6 +111,23 @@ export const api = {
       note_suggestions: Record<string, { type: string; yield_pct: number }>;
     }>("/session-state"),
 
+  portfolioSummary: (horizon = 1, riskFree = 2.0) =>
+    req<{
+      portfolios: {
+        name: string;
+        allocations: { asset: string; weight_pct: number }[];
+        sharpe: number;
+        pct_neg: number;
+        shorty: number;
+        expected_income_pct: number;
+        mean: number;
+        std: number;
+      }[];
+      notes: { note_id: string; note_type: string; yield_pct: number }[];
+      horizon: number;
+      risk_free: number;
+    }>(`/portfolio-summary?horizon=${horizon}&risk_free=${riskFree}`),
+
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
 };
