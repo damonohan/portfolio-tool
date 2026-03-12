@@ -297,6 +297,27 @@ async def upload_file(file: UploadFile = File(...)):
         }
         _save_db(db)
 
+    # ── Auto-classify notes if Tracking sheet covered every note ID ──────────
+    auto_classified = False
+    if (
+        note_suggestions
+        and set(note_suggestions.keys()) == set(note_ids)
+        and not SESSION["note_meta"]   # don't overwrite a restored DB entry
+    ):
+        SESSION["note_meta"] = {
+            nid: {
+                "type":      s["type"],
+                "yield_pct": s["yield_pct"] if s["type"] == "Income" else 0.0,
+            }
+            for nid, s in note_suggestions.items()
+            if s.get("type") in VALID_TYPES  # only apply valid types
+        }
+        if set(SESSION["note_meta"].keys()) == set(note_ids):
+            _db_save_session(SESSION["fingerprint"])
+            auto_classified = True
+        else:
+            SESSION["note_meta"] = {}  # incomplete — user must classify manually
+
     preview = df.head(10).replace({float("nan"): None}).to_dict(orient="records")
 
     return {
@@ -308,6 +329,7 @@ async def upload_file(file: UploadFile = File(...)):
         "restored_note_meta":   bool(SESSION["note_meta"]),
         "restored_asset_meta":  bool(SESSION["asset_buckets"]),
         "note_suggestions":     note_suggestions,
+        "auto_classified":      auto_classified,
         "preview":              preview,
     }
 
@@ -882,12 +904,11 @@ def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
 # ── Portfolio candidates (pre-framework, all note × alloc combos) ─────────────
 
 @app.get("/portfolio-candidates")
-def portfolio_candidates(horizon: int = 1, risk_free: float = 2.0):
+def portfolio_candidates(risk_free: float = 2.0):
     """
-    For each saved portfolio, return:
-      - base metrics
-      - for each classified note at allocations 5%–40% in 5% steps:
-          blended metrics (all assets reduced proportionally, no bucket filter)
+    For each saved portfolio, return base metrics and every note × alloc combo
+    at ALL THREE horizons (1yr, 2yr, 3yr) in a single call.
+    Each candidate also includes the complete portfolio weight breakdown.
     """
     df = _require_df()
     if not SESSION["portfolios"]:
@@ -896,31 +917,54 @@ def portfolio_candidates(horizon: int = 1, risk_free: float = 2.0):
         raise HTTPException(400, "Asset metadata not set. Complete step 3 first.")
     if not SESSION["note_meta"]:
         raise HTTPException(400, "Notes not classified yet. Complete step 2 first.")
-    if horizon not in (1, 2, 3):
-        raise HTTPException(400, "Horizon must be 1, 2, or 3.")
 
-    # All asset + note columns needed
     all_asset_cols = SESSION["asset_cols"]
-    note_col_map   = SESSION["note_col_map"]   # {note_id: raw_col_name}
-    note_meta      = SESSION["note_meta"]       # {note_id: {type, yield_pct}}
-    asset_yields   = SESSION["asset_yields"]    # {asset: yield_%}
+    note_col_map   = SESSION["note_col_map"]
+    note_meta      = SESSION["note_meta"]
+    asset_yields   = SESSION["asset_yields"]
 
-    # Pre-compute cumulative returns for ALL columns at once
-    note_cols  = list(note_col_map.values())
-    all_cols   = all_asset_cols + note_cols
-    cum_df     = compute_cumulative_returns(df, all_cols, horizon)
+    note_cols = list(note_col_map.values())
+    all_cols  = all_asset_cols + note_cols
+
+    # Pre-compute cumulative returns for all 3 horizons at once
+    cum = {h: compute_cumulative_returns(df, all_cols, h) for h in (1, 2, 3)}
+
+    def _m(cum_df, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols):
+        """Compute metrics dict for one horizon."""
+        m          = compute_metrics(ret_vec, risk_free)
+        new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in a_cols)
+        if note_type == "Income":
+            new_income += alloc * note_yield_frac * 100
+        return {
+            "sharpe":               round(m["sharpe"],  4),
+            "pct_neg":              round(m["pct_neg"], 4),
+            "shorty":               round(m["shorty"],  4),
+            "expected_income_pct":  round(new_income,   4),
+            "mean":                 round(m["mean"],    4),
+            "std":                  round(m["std"],     4),
+        }
 
     alloc_steps = [round(i * 0.05, 2) for i in range(1, 9)]  # 0.05 … 0.40
 
     result = []
     for port_name, port in SESSION["portfolios"].items():
-        weights    = port["weights"]           # {asset: fraction}
+        weights    = port["weights"]
         asset_cols = list(weights.keys())
 
-        # Base portfolio metrics
-        base_ret    = portfolio_returns(cum_df, weights)
-        base_m      = compute_metrics(base_ret, risk_free)
+        # Base metrics for all 3 horizons
         base_income = expected_income(weights, asset_yields)
+        base_h: dict[str, dict] = {}
+        for h in (1, 2, 3):
+            base_ret = portfolio_returns(cum[h], weights)
+            bm       = compute_metrics(base_ret, risk_free)
+            base_h[f"h{h}"] = {
+                "sharpe":               round(bm["sharpe"],  4),
+                "pct_neg":              round(bm["pct_neg"], 4),
+                "shorty":               round(bm["shorty"],  4),
+                "expected_income_pct":  round(base_income,   4),
+                "mean":                 round(bm["mean"],    4),
+                "std":                  round(bm["std"],     4),
+            }
 
         allocations = sorted(
             [{"asset": a, "weight_pct": round(w * 100, 2)} for a, w in weights.items()],
@@ -930,36 +974,30 @@ def portfolio_candidates(horizon: int = 1, risk_free: float = 2.0):
         note_rows = []
         for note_id, meta in note_meta.items():
             note_col   = note_col_map.get(note_id)
-            if note_col is None or note_col not in cum_df.columns:
+            if note_col is None:
                 continue
             note_type  = meta.get("type", "")
-            note_yield = meta.get("yield_pct", 0.0) / 100.0  # convert % → fraction
+            note_yield = meta.get("yield_pct", 0.0) / 100.0
 
             candidates = []
             for alloc in alloc_steps:
-                # Reduce ALL assets proportionally to make room for the note
                 new_weights = {a: w * (1.0 - alloc) for a, w in weights.items()}
                 nw_vec      = np.array([new_weights[a] for a in asset_cols])
 
-                asset_ret  = cum_df[asset_cols].values @ nw_vec
-                note_ret   = cum_df[note_col].values * alloc
-                port_ret   = asset_ret + note_ret
+                # Complete portfolio weights (assets + note), all in %
+                full_weights = {a: round(new_weights[a] * 100, 2) for a in asset_cols}
+                full_weights[f"NOTE:{note_id}"] = int(round(alloc * 100))
 
-                m          = compute_metrics(port_ret, risk_free)
-                new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0)
-                                 for a in asset_cols)
-                if note_type == "Income":
-                    new_income += alloc * note_yield * 100  # back to % units
-
-                candidates.append({
-                    "alloc_pct":            int(round(alloc * 100)),
-                    "sharpe":               round(m["sharpe"],   4),
-                    "pct_neg":              round(m["pct_neg"],  4),
-                    "shorty":               round(m["shorty"],   4),
-                    "expected_income_pct":  round(new_income,    4),
-                    "mean":                 round(m["mean"],     4),
-                    "std":                  round(m["std"],      4),
-                })
+                cand: dict = {
+                    "alloc_pct":    int(round(alloc * 100)),
+                    "weights":      full_weights,
+                }
+                for h in (1, 2, 3):
+                    cd   = cum[h]
+                    ret  = cd[asset_cols].values @ nw_vec + cd[note_col].values * alloc
+                    cand[f"h{h}"] = _m(cd, ret, risk_free, note_type, note_yield,
+                                       alloc, new_weights, asset_cols)
+                candidates.append(cand)
 
             note_rows.append({
                 "note_id":    note_id,
@@ -971,18 +1009,11 @@ def portfolio_candidates(horizon: int = 1, risk_free: float = 2.0):
         result.append({
             "name":        port_name,
             "allocations": allocations,
-            "base": {
-                "sharpe":               round(base_m["sharpe"],   4),
-                "pct_neg":              round(base_m["pct_neg"],  4),
-                "shorty":               round(base_m["shorty"],   4),
-                "expected_income_pct":  round(base_income,        4),
-                "mean":                 round(base_m["mean"],     4),
-                "std":                  round(base_m["std"],      4),
-            },
-            "notes": note_rows,
+            "base":        base_h,
+            "notes":       note_rows,
         })
 
-    return {"portfolios": result, "horizon": horizon, "risk_free": risk_free}
+    return {"portfolios": result, "risk_free": risk_free}
 
 
 # ── Session state getter ──────────────────────────────────────────────────────

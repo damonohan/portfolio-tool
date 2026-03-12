@@ -92,19 +92,20 @@ export default function Home() {
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
     noteSuggestions: Record<string, { type: string; yield_pct: number }>;
+    autoClassified: boolean;
   }) => {
     setAssetCols(data.assetCols);
     setNoteIds(data.noteIds);
     setNoteSuggestions(data.noteSuggestions ?? {});
 
-    // Figure out which step to jump to based on what was restored
+    // Figure out which step to jump to based on what was restored / auto-classified
     if (data.restoredPortfolios > 0 && data.restoredAssetMeta) {
-      setPortNames([]);  // will be refreshed by screen 3 / 4
+      setPortNames([]);
       advanceTo(4);
-      // Also refresh portfolio list
       api.getPortfolios().then((ps) => setPortNames(ps.map((p) => p.name)));
       api.sessionState().then((s) => { if (s.note_meta) setNoteMeta(s.note_meta); });
-    } else if (data.restoredNoteMeta) {
+    } else if (data.restoredNoteMeta || data.autoClassified) {
+      // note_meta already saved (restored from DB or auto-classified from Tracking sheet)
       api.sessionState().then((s) => { if (s.note_meta) setNoteMeta(s.note_meta); });
       advanceTo(3);
     } else {

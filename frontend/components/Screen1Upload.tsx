@@ -11,6 +11,7 @@ interface Props {
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
     noteSuggestions: Record<string, { type: string; yield_pct: number }>;
+    autoClassified: boolean;
   }) => void;
 }
 
@@ -192,6 +193,7 @@ export default function Screen1Upload({ onContinue }: Props) {
                 restoredNoteMeta:   result.restored_note_meta,
                 restoredAssetMeta:  result.restored_asset_meta,
                 noteSuggestions:    result.note_suggestions ?? {},
+                autoClassified:     result.auto_classified ?? false,
               })
             }
           >
