@@ -26,6 +26,8 @@ export default function Screen1Upload({ onContinue }: Props) {
     restored_portfolios: number;
     restored_note_meta: boolean;
     restored_asset_meta: boolean;
+    note_suggestions: Record<string, { type: string; yield_pct: number }>;
+    auto_classified: boolean;
     preview: Record<string, unknown>[];
   } | null>(null);
 
