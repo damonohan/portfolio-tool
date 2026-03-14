@@ -20,7 +20,6 @@ interface Framework {
   goal: string;
   portfolio_name: string;
   horizon: number;
-  risk_free: number;
 }
 
 interface Props {
@@ -44,7 +43,13 @@ export default function Screen5Improvements({ framework }: Props) {
     setHistograms({});
     setExpandedIdx(null);
     try {
-      const res = await api.findImprovements();
+      const res = await api.findImprovements({
+        portfolio_name: framework.portfolio_name,
+        outlook:        framework.outlook,
+        risk_tolerance: framework.risk_tolerance,
+        goal:           framework.goal,
+        horizon:        framework.horizon,
+      });
       setBaseMetrics(res.base);
       setImprovements(res.improvements);
     } catch (e: unknown) {
@@ -93,7 +98,6 @@ export default function Screen5Improvements({ framework }: Props) {
         <span><strong>Goal:</strong> {framework.goal}</span>
         <span><strong>Portfolio:</strong> {framework.portfolio_name}</span>
         <span><strong>Horizon:</strong> {framework.horizon}yr</span>
-        <span><strong>RFR:</strong> {framework.risk_free}%</span>
       </div>
 
       {/* Base summary */}

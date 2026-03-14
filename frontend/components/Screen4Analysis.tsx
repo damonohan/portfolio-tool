@@ -1,71 +1,116 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { useState, useMemo, useEffect } from "react";
+import { PrecalcMetrics, PrecalcCandidate, PortfolioPrecalc, RankedCandidate } from "@/lib/api";
+import type { Framework } from "@/app/page";
 
 const OUTLOOKS      = ["Bearish", "Neutral", "Bullish"] as const;
 const RISK_LEVELS   = ["Conservative", "Moderate", "Aggressive"] as const;
 const GOALS         = ["Growth", "Balanced", "Income"] as const;
 const HORIZONS      = [1, 2, 3] as const;
 
-interface BaseResult {
-  sharpe: number;
-  pct_neg: number;
-  shorty: number;
-  expected_income_pct: number;
-  mean: number;
-  std: number;
-}
+const NOTE_TYPES_GROWTH = new Set(["Growth", "Digital", "Absolute"]);
+const NOTE_TYPES_INCOME = new Set(["Income", "MLCD", "PPN"]);
 
-import type { Framework } from "@/app/page";
+const RISK_MAX: Record<string, number> = {
+  Conservative: 0.175,
+  Moderate:     0.275,
+  Aggressive:   0.375,
+};
+
+function rankScore(
+  base: PrecalcMetrics,
+  cand: PrecalcCandidate["metrics"],
+  goal: string
+): number {
+  const wIncome = goal === "Income" ? 0.5 : 0.1;
+  return (
+    1.0 * (cand.sharpe  - base.sharpe)
+    - 1.0 * (cand.pct_neg - base.pct_neg)
+    - 0.5 * (cand.shorty  - base.shorty)
+    + wIncome * cand.income_boost
+  );
+}
 
 interface Props {
   portfolioNames: string[];
   initialFramework: Framework;
+  precalcData: Record<string, PortfolioPrecalc>;
+  precalcLoading: boolean;
   onContinue: (framework: Framework) => void;
 }
 
-export default function Screen4Analysis({ portfolioNames, initialFramework, onContinue }: Props) {
-  const [outlook,     setOutlook]     = useState<string>(initialFramework.outlook);
-  const [risk,        setRisk]        = useState<string>(initialFramework.risk_tolerance);
-  const [goal,        setGoal]        = useState<string>(initialFramework.goal);
-  const [horizon,     setHorizon]     = useState<number>(initialFramework.horizon || 1);
-  const [riskFree,    setRiskFree]    = useState<number>(initialFramework.risk_free || 2.0);
-  const [portName,    setPortName]    = useState<string>(
+export default function Screen4Analysis({
+  portfolioNames,
+  initialFramework,
+  precalcData,
+  precalcLoading,
+  onContinue,
+}: Props) {
+  const [outlook,  setOutlook]  = useState<string>(initialFramework.outlook  || "Neutral");
+  const [risk,     setRisk]     = useState<string>(initialFramework.risk_tolerance || "Moderate");
+  const [goal,     setGoal]     = useState<string>(initialFramework.goal     || "Balanced");
+  const [horizon,  setHorizon]  = useState<number>(initialFramework.horizon  || 1);
+  const [portName, setPortName] = useState<string>(
     initialFramework.portfolio_name || portfolioNames[0] || ""
   );
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState("");
-  const [result,      setResult]      = useState<BaseResult | null>(null);
 
   useEffect(() => {
     if (portfolioNames.length > 0 && !portName) setPortName(portfolioNames[0]);
   }, [portfolioNames, portName]);
 
-  const calculate = async () => {
-    if (!outlook || !risk || !goal || !portName) {
-      setError("Please complete all selections.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const res = await api.calculateBase({
-        portfolio_name:  portName,
-        horizon,
-        risk_free:       riskFree,
-        outlook,
-        risk_tolerance:  risk,
-        goal,
+  // ── Client-side filtering and ranking ────────────────────────────────────────
+  const { baseMetrics, ranked } = useMemo<{
+    baseMetrics: PrecalcMetrics | null;
+    ranked: RankedCandidate[];
+  }>(() => {
+    if (!portName || !outlook || !goal || !risk) return { baseMetrics: null, ranked: [] };
+    const portData = precalcData[portName];
+    if (!portData) return { baseMetrics: null, ranked: [] };
+
+    const hKey        = String(horizon);
+    const base        = portData._base?.[hKey];
+    const candidates  = portData[outlook as "Bullish" | "Bearish" | "Neutral"]?.[hKey] ?? [];
+
+    if (!base) return { baseMetrics: null, ranked: [] };
+
+    const riskMax     = RISK_MAX[risk] ?? 0.275;
+    const allowedTypes = goal === "Growth"   ? NOTE_TYPES_GROWTH
+                       : goal === "Income"   ? NOTE_TYPES_INCOME
+                       : new Set([...NOTE_TYPES_GROWTH, ...NOTE_TYPES_INCOME]);
+
+    // Filter + score
+    const scored: RankedCandidate[] = [];
+    for (const c of candidates) {
+      if (c.alloc_pct > riskMax + 1e-9) continue;
+      if (!allowedTypes.has(c.note_type)) continue;
+      const score = rankScore(base, c.metrics, goal);
+      scored.push({
+        note_id:      c.note_id,
+        note_type:    c.note_type,
+        alloc_pct:    c.alloc_pct,
+        sharpe:       c.metrics.sharpe,
+        pct_neg:      c.metrics.pct_neg,
+        shorty:       c.metrics.shorty,
+        income_boost: c.metrics.income_boost,
+        score,
       });
-      setResult(res);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Calculation failed");
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // Sort descending, deduplicate by note_id, take top 5
+    scored.sort((a, b) => b.score - a.score);
+    const seen = new Set<string>();
+    const top5: RankedCandidate[] = [];
+    for (const c of scored) {
+      if (!seen.has(c.note_id)) {
+        seen.add(c.note_id);
+        top5.push(c);
+      }
+      if (top5.length === 5) break;
+    }
+
+    return { baseMetrics: base, ranked: top5 };
+  }, [portName, outlook, risk, goal, horizon, precalcData]);
 
   const RadioGroup = ({
     label, options, value, onChange,
@@ -90,27 +135,49 @@ export default function Screen4Analysis({ portfolioNames, initialFramework, onCo
     </div>
   );
 
-  const MetricCard = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
-    <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-center">
-      <div className="text-2xl font-bold text-blue-700">{value}</div>
-      <div className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">{label}</div>
-      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
-    </div>
-  );
+  const MetricCard = ({ label, value, delta, lowerBetter }: {
+    label: string; value: string; delta?: number; lowerBetter?: boolean;
+  }) => {
+    const good = delta === undefined ? undefined : (lowerBetter ? delta <= 0 : delta >= 0);
+    return (
+      <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-center">
+        <div className="text-2xl font-bold text-blue-700">{value}</div>
+        <div className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">{label}</div>
+        {delta !== undefined && (
+          <div className={`text-xs mt-0.5 font-semibold ${good ? "text-green-600" : "text-red-500"}`}>
+            {delta >= 0 ? "+" : ""}{delta.toFixed(4)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const NOTE_TYPE_COLORS: Record<string, string> = {
+    Income:   "bg-green-100 text-green-700",
+    Growth:   "bg-blue-100 text-blue-700",
+    Digital:  "bg-purple-100 text-purple-700",
+    Absolute: "bg-slate-100 text-slate-700",
+    MLCD:     "bg-teal-100 text-teal-700",
+    PPN:      "bg-teal-100 text-teal-700",
+  };
+
+  const noData = !precalcLoading && portName && !precalcData[portName];
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">Framework & Base Analysis</h2>
-          <p className="text-sm text-slate-500">Set your investment framework and calculate base portfolio metrics.</p>
+          <h2 className="text-xl font-bold text-slate-800 mb-1">Framework Selection</h2>
+          <p className="text-sm text-slate-500">
+            Results update instantly as you change selections below.
+          </p>
         </div>
 
         <RadioGroup label="Market Outlook" options={OUTLOOKS} value={outlook} onChange={setOutlook} />
         <RadioGroup label="Risk Tolerance" options={RISK_LEVELS} value={risk} onChange={setRisk} />
         <RadioGroup label="Portfolio Goal" options={GOALS} value={goal} onChange={setGoal} />
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-sm font-semibold text-slate-600 mb-2">Simulation Horizon</p>
             <select
@@ -122,18 +189,6 @@ export default function Screen4Analysis({ portfolioNames, initialFramework, onCo
                 <option key={h} value={h}>{h} {h === 1 ? "Year" : "Years"}</option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Risk-Free Rate (%)</p>
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={riskFree}
-              onChange={(e) => setRiskFree(parseFloat(e.target.value) || 0)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
           </div>
 
           <div>
@@ -149,46 +204,130 @@ export default function Screen4Analysis({ portfolioNames, initialFramework, onCo
             </select>
           </div>
         </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>
-        )}
-
-        <button
-          onClick={calculate}
-          disabled={loading}
-          className="bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors disabled:opacity-50"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2">
-              <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full inline-block" />
-              Calculating…
-            </span>
-          ) : "Calculate Base Portfolio"}
-        </button>
       </div>
 
-      {result && (
+      {/* Loading spinner */}
+      {precalcLoading && (
+        <div className="flex items-center justify-center py-10 text-slate-500 gap-3">
+          <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full" />
+          Loading pre-computed data…
+        </div>
+      )}
+
+      {/* No data for this portfolio */}
+      {noData && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4 text-sm">
+          No pre-calc data available for <strong>{portName}</strong>.
+          Go back to Step 3 and re-save the portfolio to trigger pre-calculation.
+        </div>
+      )}
+
+      {/* Base metrics */}
+      {baseMetrics && !precalcLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
-          <h3 className="text-lg font-bold text-slate-800">Base Portfolio Summary</h3>
+          <h3 className="text-lg font-bold text-slate-800">Base Portfolio — {horizon}yr Horizon</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <MetricCard label="Sharpe Ratio" value={result.sharpe.toFixed(4)} />
-            <MetricCard label="% Negative" value={`${result.pct_neg.toFixed(2)}%`} sub="Simulations below 0%" />
-            <MetricCard label="Shorty" value={result.shorty.toFixed(4)} sub="Excess kurtosis" />
-            <MetricCard label="Expected Income" value={`${result.expected_income_pct.toFixed(2)}%`} />
+            <MetricCard label="Sharpe Ratio"     value={baseMetrics.sharpe.toFixed(4)} />
+            <MetricCard label="% Negative"       value={`${baseMetrics.pct_neg.toFixed(2)}%`} />
+            <MetricCard label="Shorty"           value={baseMetrics.shorty.toFixed(4)} />
+            <MetricCard label="Expected Income"  value={`${baseMetrics.expected_income_pct.toFixed(2)}%`} />
           </div>
-          <div className="flex gap-4 text-sm text-slate-500 pt-1">
-            <span>Mean return: <strong className="text-slate-800">{(result.mean * 100).toFixed(2)}%</strong></span>
-            <span>Std dev: <strong className="text-slate-800">{(result.std * 100).toFixed(2)}%</strong></span>
+          <div className="flex gap-4 text-sm text-slate-500">
+            <span>Mean return: <strong className="text-slate-800">{(baseMetrics.mean * 100).toFixed(2)}%</strong></span>
+            <span>Std dev: <strong className="text-slate-800">{(baseMetrics.std * 100).toFixed(2)}%</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* Top-5 results */}
+      {baseMetrics && !precalcLoading && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <span className="font-semibold text-slate-700">
+              {ranked.length > 0
+                ? `Top ${ranked.length} Candidate${ranked.length > 1 ? "s" : ""} — ${outlook} / ${goal} / ${risk}`
+                : "No candidates under current framework"}
+            </span>
+            <span className="text-xs text-slate-400">Updates instantly</span>
           </div>
 
+          {ranked.length === 0 ? (
+            <div className="px-5 py-6 text-sm text-slate-500 text-center">
+              No notes pass the current framework filters. Try changing the outlook, goal, or risk tolerance.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Rank</th>
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Note ID</th>
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Type</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Alloc %</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Sharpe</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New %Neg</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Shorty</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Income Boost</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ranked.map((r, idx) => {
+                    const sharpeDelta  = r.sharpe  - baseMetrics.sharpe;
+                    const pctNegDelta  = r.pct_neg - baseMetrics.pct_neg;
+                    const shortyDelta  = r.shorty  - baseMetrics.shorty;
+                    return (
+                      <tr key={r.note_id} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-blue-700">#{idx + 1}</td>
+                        <td className="px-4 py-3 font-mono font-semibold">{r.note_id}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${NOTE_TYPE_COLORS[r.note_type] ?? "bg-slate-100 text-slate-700"}`}>
+                            {r.note_type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold">{Math.round(r.alloc_pct * 100)}%</td>
+                        <td className="px-4 py-3 text-right">
+                          {r.sharpe.toFixed(4)}
+                          <span className={`ml-1 text-xs ${sharpeDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({sharpeDelta >= 0 ? "+" : ""}{sharpeDelta.toFixed(4)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {r.pct_neg.toFixed(2)}%
+                          <span className={`ml-1 text-xs ${pctNegDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({pctNegDelta >= 0 ? "+" : ""}{pctNegDelta.toFixed(4)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {r.shorty.toFixed(4)}
+                          <span className={`ml-1 text-xs ${shortyDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({shortyDelta >= 0 ? "+" : ""}{shortyDelta.toFixed(4)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {r.income_boost > 0
+                            ? <span className="text-green-600 font-semibold">+{(r.income_boost * 100).toFixed(4)}%</span>
+                            : <span className="text-slate-400">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">{r.score.toFixed(4)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Continue button */}
+      {baseMetrics && !precalcLoading && (
+        <div className="flex justify-end">
           <button
-            onClick={() =>
-              onContinue({ outlook, risk_tolerance: risk, goal, portfolio_name: portName, horizon, risk_free: riskFree })
-            }
+            onClick={() => onContinue({ outlook, risk_tolerance: risk, goal, portfolio_name: portName, horizon })}
             className="bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors"
           >
-            Find Improvements →
+            View Histograms →
           </button>
         </div>
       )}

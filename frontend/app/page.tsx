@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { api, PortfolioPrecalc } from "@/lib/api";
 import StepNav from "@/components/StepNav";
 import Screen1Upload from "@/components/Screen1Upload";
 import Screen2ClassifyNotes from "@/components/Screen2ClassifyNotes";
@@ -10,13 +10,13 @@ import Screen4PortfolioSummary from "@/components/Screen4PortfolioSummary";
 import Screen4Analysis from "@/components/Screen4Analysis";
 import Screen5Improvements from "@/components/Screen5Improvements";
 
+// risk_free removed — now stored per-portfolio on the backend
 export type Framework = {
   outlook: string;
   risk_tolerance: string;
   goal: string;
   portfolio_name: string;
   horizon: number;
-  risk_free: number;
 };
 
 export default function Home() {
@@ -30,6 +30,10 @@ export default function Home() {
   const [portNames, setPortNames]         = useState<string[]>([]);
   const [noteSuggestions, setNoteSuggestions] = useState<Record<string, { type: string; yield_pct: number }>>({});
 
+  // Pre-calc data — loaded after portfolios are saved, passed to Screen 5
+  const [precalcData, setPrecalcData]       = useState<Record<string, PortfolioPrecalc>>({});
+  const [precalcLoading, setPrecalcLoading] = useState(false);
+
   // Framework — lifted so it survives back-navigation between steps 4 & 5
   const [framework, setFramework] = useState<Framework>({
     outlook: "",
@@ -37,11 +41,22 @@ export default function Home() {
     goal: "",
     portfolio_name: "",
     horizon: 1,
-    risk_free: 2.0,
   });
 
   // Restore-notification (shown briefly after upload)
   const [restoreMsg, setRestoreMsg] = useState("");
+
+  const loadPrecalc = async () => {
+    setPrecalcLoading(true);
+    try {
+      const data = await api.portfolioPrecalc();
+      setPrecalcData(data.portfolios);
+    } catch {
+      // non-fatal
+    } finally {
+      setPrecalcLoading(false);
+    }
+  };
 
   // Restore session on mount (handles page refresh)
   useEffect(() => {
@@ -55,10 +70,14 @@ export default function Home() {
       const portsDone   = state.portfolios.length > 0;
 
       let targetStep = 2;
-      if (portsDone && bucketsDone) targetStep = 4;
-      else if (notesDone)            targetStep = 3;
+      if (portsDone && bucketsDone) {
+        targetStep = 4;
+        loadPrecalc();
+      } else if (notesDone) {
+        targetStep = 3;
+      }
 
-      if (state.has_base) targetStep = 6;
+      if (state.has_precalc) targetStep = 5;
 
       if (notesDone) setNoteMeta(state.note_meta);
       if (portsDone) setPortNames(state.portfolios);
@@ -81,7 +100,8 @@ export default function Home() {
     setNoteIds([]);
     setNoteMeta({});
     setPortNames([]);
-    setFramework({ outlook: "", risk_tolerance: "", goal: "", portfolio_name: "", horizon: 1, risk_free: 2.0 });
+    setPrecalcData({});
+    setFramework({ outlook: "", risk_tolerance: "", goal: "", portfolio_name: "", horizon: 1 });
     setRestoreMsg("");
   };
 
@@ -104,6 +124,7 @@ export default function Home() {
       advanceTo(4);
       api.getPortfolios().then((ps) => setPortNames(ps.map((p) => p.name)));
       api.sessionState().then((s) => { if (s.note_meta) setNoteMeta(s.note_meta); });
+      loadPrecalc();
     } else if (data.restoredNoteMeta || data.autoClassified) {
       // note_meta already saved (restored from DB or auto-classified from Tracking sheet)
       api.sessionState().then((s) => { if (s.note_meta) setNoteMeta(s.note_meta); });
@@ -121,12 +142,18 @@ export default function Home() {
   const handleClassified = async () => {
     const state = await api.sessionState();
     setNoteMeta(state.note_meta ?? {});
+    // Re-load precalc since note classifications changed
+    if (portNames.length > 0) {
+      loadPrecalc();
+    }
     advanceTo(3);
   };
 
   const handlePortfolioBuilt = async () => {
     const ps = await api.getPortfolios();
     setPortNames(ps.map((p) => p.name));
+    // Load precalc data so Screen 5 has it ready
+    await loadPrecalc();
     advanceTo(4);
   };
 
@@ -196,6 +223,8 @@ export default function Home() {
           <Screen4Analysis
             portfolioNames={portNames}
             initialFramework={framework}
+            precalcData={precalcData}
+            precalcLoading={precalcLoading}
             onContinue={handleFrameworkDone}
           />
         )}

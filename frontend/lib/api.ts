@@ -55,45 +55,34 @@ export const api = {
       body: JSON.stringify({ assets }),
     }),
 
-  savePortfolio: (name: string, weights: Record<string, number>) =>
-    req<{ ok: boolean; portfolios: string[] }>("/portfolio/save", {
+  savePortfolio: (name: string, weights: Record<string, number>, riskFree = 2.0) =>
+    req<{ ok: boolean; portfolios: string[]; risk_free: number }>("/portfolio/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, weights }),
+      body: JSON.stringify({ name, weights, risk_free: riskFree }),
     }),
 
   deletePortfolio: (name: string) =>
     req<{ ok: boolean }>(`/portfolio/${encodeURIComponent(name)}`, { method: "DELETE" }),
 
   getPortfolios: () =>
-    req<{ name: string; asset_count: number; weights: Record<string, number> }[]>("/portfolios"),
+    req<{ name: string; asset_count: number; weights: Record<string, number>; risk_free: number }[]>("/portfolios"),
 
-  calculateBase: (params: {
+  findImprovements: (params: {
     portfolio_name: string;
-    horizon: number;
-    risk_free: number;
     outlook: string;
     risk_tolerance: string;
     goal: string;
+    horizon: number;
   }) =>
     req<{
-      sharpe: number;
-      pct_neg: number;
-      shorty: number;
-      expected_income_pct: number;
-      mean: number;
-      std: number;
-    }>("/calculate-base", {
+      base: { sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
+      improvements: Improvement[];
+    }>("/find-improvements", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     }),
-
-  findImprovements: () =>
-    req<{
-      base: { sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
-      improvements: Improvement[];
-    }>("/find-improvements", { method: "POST" }),
 
   getHistogram: (index: number) => req<PlotlyData>(`/histogram/${index}`),
 
@@ -107,7 +96,7 @@ export const api = {
       asset_yields: Record<string, number>;
       asset_buckets: Record<string, string>;
       portfolios: string[];
-      has_base: boolean;
+      has_precalc: boolean;
       has_improvements: boolean;
       note_suggestions: Record<string, { type: string; yield_pct: number }>;
     }>("/session-state"),
@@ -134,6 +123,15 @@ export const api = {
       portfolios: PortfolioCandidate[];
       risk_free: number;
     }>(`/portfolio-candidates?risk_free=${riskFree}`),
+
+  portfolioPrecalc: () =>
+    req<{ portfolios: Record<string, PortfolioPrecalc> }>("/portfolio-precalc"),
+
+  triggerPrecalc: (portfolioName: string) =>
+    req<{ ok: boolean; portfolio_name: string }>(
+      `/precalc/${encodeURIComponent(portfolioName)}`,
+      { method: "POST" }
+    ),
 
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
@@ -171,6 +169,51 @@ export interface PortfolioCandidate {
   allocations: { asset: string; weight_pct: number }[];
   base: { h1: HorizonMetrics; h2: HorizonMetrics; h3: HorizonMetrics };
   notes: NoteCandidate[];
+}
+
+// ── Pre-calc types ─────────────────────────────────────────────────────────────
+
+export interface PrecalcMetrics {
+  sharpe: number;
+  pct_neg: number;
+  shorty: number;
+  expected_income_pct: number;
+  mean: number;
+  std: number;
+}
+
+export interface PrecalcCandidate {
+  note_id: string;
+  note_type: string;
+  alloc_pct: number;  // fraction, e.g. 0.05
+  metrics: {
+    sharpe: number;
+    pct_neg: number;
+    shorty: number;
+    income_boost: number;  // fraction units
+  };
+}
+
+// Keys are string versions of horizon: "1", "2", "3"
+export type OutlookData = Record<string, PrecalcCandidate[]>;
+
+export interface PortfolioPrecalc {
+  _base: Record<string, PrecalcMetrics>;  // keys "1","2","3"
+  Bullish: OutlookData;
+  Bearish: OutlookData;
+  Neutral: OutlookData;
+  risk_free: number;
+}
+
+export interface RankedCandidate {
+  note_id: string;
+  note_type: string;
+  alloc_pct: number;   // fraction
+  sharpe: number;
+  pct_neg: number;
+  shorty: number;
+  income_boost: number;
+  score: number;
 }
 
 export interface Improvement {

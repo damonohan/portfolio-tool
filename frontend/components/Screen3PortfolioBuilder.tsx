@@ -22,6 +22,7 @@ interface Portfolio {
   name: string;
   asset_count: number;
   weights: Record<string, number>;
+  risk_free: number;
 }
 
 export default function Screen3PortfolioBuilder({
@@ -38,6 +39,7 @@ export default function Screen3PortfolioBuilder({
 
   // Portfolio form
   const [portName, setPortName] = useState("");
+  const [riskFree, setRiskFree] = useState(2.0);
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -49,7 +51,13 @@ export default function Screen3PortfolioBuilder({
   const incomeNotes = noteIds.filter((id) => noteMeta[id]?.type === "Income");
 
   useEffect(() => {
-    api.getPortfolios().then(setPortfolios).catch(() => {});
+    api.getPortfolios().then((ps) => {
+      setPortfolios(ps);
+      // Seed risk_free from the first saved portfolio (if any)
+      if (ps.length > 0 && ps[0].risk_free != null) {
+        setRiskFree(ps[0].risk_free);
+      }
+    }).catch(() => {});
     // Pre-populate yields and buckets from saved session state
     api.sessionState().then((state) => {
       const yields  = state.asset_yields  ?? {};
@@ -120,7 +128,7 @@ export default function Screen3PortfolioBuilder({
     setLoading(true);
     setPortError("");
     try {
-      await api.savePortfolio(portName.trim(), weights);
+      await api.savePortfolio(portName.trim(), weights, riskFree);
       setPortSuccess(`Portfolio "${portName.trim()}" saved.`);
       setPortName("");
       setSelectedAssets([]);
@@ -260,7 +268,7 @@ export default function Screen3PortfolioBuilder({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-semibold text-slate-800">{p.name}</p>
-                        <p className="text-xs text-slate-500">{p.asset_count} assets</p>
+                        <p className="text-xs text-slate-500">{p.asset_count} assets · RFR: {p.risk_free ?? 2.0}%</p>
                       </div>
                       <button
                         onClick={() => deletePortfolio(p.name)}
@@ -277,15 +285,29 @@ export default function Screen3PortfolioBuilder({
 
           {/* Portfolio form */}
           <div className="col-span-2 space-y-4">
-            <div>
-              <label className="text-sm font-medium text-slate-600 mb-1 block">Portfolio Name</label>
-              <input
-                type="text"
-                value={portName}
-                onChange={(e) => setPortName(e.target.value)}
-                placeholder="e.g. Conservative Balanced"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-slate-600 mb-1 block">Portfolio Name</label>
+                <input
+                  type="text"
+                  value={portName}
+                  onChange={(e) => setPortName(e.target.value)}
+                  placeholder="e.g. Conservative Balanced"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="w-36">
+                <label className="text-sm font-medium text-slate-600 mb-1 block">Risk-Free Rate (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  step={0.1}
+                  value={riskFree}
+                  onChange={(e) => setRiskFree(parseFloat(e.target.value) || 0)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
 
             <div>

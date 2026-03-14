@@ -296,17 +296,15 @@ function PortfolioPanel({ port, defaultOpen }: { port: PortfolioCandidate; defau
 interface Props { onContinue: () => void; }
 
 export default function Screen4PortfolioSummary({ onContinue }: Props) {
-  const [portfolios, setPortfolios]       = useState<PortfolioCandidate[]>([]);
-  const [riskFree, setRiskFree]           = useState(2.0);
-  const [riskFreeInput, setRiskFreeInput] = useState("2.0");
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState("");
+  const [portfolios, setPortfolios] = useState<PortfolioCandidate[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState("");
 
-  const load = useCallback(async (rf: number) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await api.portfolioCandidates(rf);
+      const data = await api.portfolioCandidates();
       setPortfolios(data.portfolios);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load candidates");
@@ -315,13 +313,7 @@ export default function Screen4PortfolioSummary({ onContinue }: Props) {
     }
   }, []);
 
-  useEffect(() => { load(2.0); }, [load]);
-
-  const handleRfBlur = () => {
-    const v = parseFloat(riskFreeInput);
-    if (!isNaN(v) && v >= 0 && v <= 20) { setRiskFree(v); load(v); }
-    else setRiskFreeInput(riskFree.toString());
-  };
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="space-y-5">
@@ -337,18 +329,6 @@ export default function Screen4PortfolioSummary({ onContinue }: Props) {
               <span className="text-emerald-600 font-medium">Green ▲</span> = improves vs base ·{" "}
               <span className="text-red-500 font-medium">Red ▼</span> = regresses.
             </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-medium text-slate-600 whitespace-nowrap">Risk-Free Rate</span>
-            <input
-              type="number"
-              value={riskFreeInput}
-              onChange={(e) => setRiskFreeInput(e.target.value)}
-              onBlur={handleRfBlur}
-              min={0} max={20} step={0.1}
-              className="w-16 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <span className="text-sm text-slate-500">%</span>
           </div>
         </div>
       </div>
