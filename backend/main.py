@@ -46,8 +46,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Persistent DB (JSON file) ─────────────────────────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(__file__), "portfolios_db.json")
+# ── Persistent storage paths ──────────────────────────────────────────────────
+# Set DATA_DIR=/data on Render (persistent disk mount) to survive redeploys.
+# Falls back to the backend/ directory for local dev.
+DATA_DIR    = os.environ.get("DATA_DIR", os.path.dirname(__file__))
+DB_PATH     = os.path.join(DATA_DIR, "portfolios_db.json")
+UPLOAD_PATH = os.path.join(DATA_DIR, "simulation.xlsx")
 
 
 def _load_db() -> dict[str, Any]:
@@ -312,18 +316,27 @@ def _run_precalc(portfolio_name: str) -> None:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+async def startup_event():
+    """Auto-load the last uploaded file on startup so state survives redeploys."""
+    if os.path.exists(UPLOAD_PATH):
+        try:
+            with open(UPLOAD_PATH, "rb") as f:
+                contents = f.read()
+            _parse_and_load_xlsx(contents, "simulation.xlsx")
+        except Exception:
+            pass  # non-fatal — user can re-upload if file is corrupt
+
+
 @app.post("/reset")
 def reset():
     reset_session()
     return {"ok": True}
 
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(400, "Only .xlsx files are accepted.")
-
-    contents = await file.read()
+def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict:
+    """Parse xlsx bytes into SESSION and persist state. Returns metadata dict.
+    Raises HTTPException on invalid file structure."""
     _xl = pd.ExcelFile(io.BytesIO(contents))
     _data_sheet = next(
         (s for s in _xl.sheet_names if s.strip().lower() in ("sheet1", "data", "results")),
@@ -465,7 +478,7 @@ async def upload_file(file: UploadFile = File(...)):
         SESSION["precalc"]       = {}
         # Seed the DB entry with file metadata
         db[fp] = {
-            "filename":      file.filename,
+            "filename":      filename,
             "row_count":     len(df),
             "asset_cols":    asset_cols,
             "note_ids":      note_ids,
@@ -514,6 +527,19 @@ async def upload_file(file: UploadFile = File(...)):
         "auto_classified":      auto_classified,
         "preview":              preview,
     }
+
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(400, "Only .xlsx files are accepted.")
+    contents = await file.read()
+    result = _parse_and_load_xlsx(contents, file.filename)
+    # Persist to disk so the file survives backend restarts / redeploys
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(UPLOAD_PATH, "wb") as f:
+        f.write(contents)
+    return result
 
 
 # ── Note classification ───────────────────────────────────────────────────────
@@ -1056,76 +1082,17 @@ def export_pdf():
 @app.post("/dev/load-test-file")
 async def dev_load_test_file(path: str = "../Test2.xlsx"):
     """Development helper — loads a file from the server's filesystem."""
-    import os
     abs_path = os.path.abspath(os.path.join(os.path.dirname(__file__), path))
     if not os.path.exists(abs_path):
         raise HTTPException(404, f"File not found: {abs_path}")
     with open(abs_path, "rb") as f:
         contents = f.read()
-    # Re-use upload logic via UploadFile mock
-    from fastapi import UploadFile
-    from starlette.datastructures import UploadFile as StarletteUploadFile
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-    tmp.write(contents)
-    tmp.flush()
-    tmp.close()
-    # Parse directly
-    try:
-        df = pd.read_excel(abs_path, sheet_name="Sheet1")
-    except Exception as e:
-        raise HTTPException(400, f"Could not parse: {e}")
-
-    if "Simulation" not in df.columns or "Period" not in df.columns:
-        raise HTTPException(400, "Invalid structure.")
-
-    all_data_cols = []
-    past_period = False
-    for c in df.columns:
-        if c == "Period":
-            past_period = True
-            continue
-        if not past_period:
-            continue
-        cstr = str(c).strip()
-        if cstr and cstr.lower().startswith("unnamed"):
-            continue
-        if cstr:
-            all_data_cols.append(c)
-
-    note_ids: list[str] = []
-    note_col_map: dict[str, str] = {}
-    asset_cols: list[str] = []
-    in_notes = False
-
-    for col in all_data_cols:
-        col_str = str(col).strip()
-        nid = _note_col_to_id(col_str)
-        if nid:
-            in_notes = True
-            note_ids.append(nid)
-            note_col_map[nid] = col
-        elif not in_notes:
-            asset_cols.append(col)
-
-    numeric_cols = asset_cols + list(note_col_map.values())
-    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
-    df["Simulation"] = pd.to_numeric(df["Simulation"], errors="coerce").astype(int)
-    df["Period"]     = pd.to_numeric(df["Period"], errors="coerce").astype(int)
-
-    SESSION["df"]                = df
-    SESSION["asset_cols"]        = asset_cols
-    SESSION["note_ids"]          = note_ids
-    SESSION["note_col_map"]      = note_col_map
-    SESSION["note_meta"]         = {}
-    SESSION["asset_yields"]      = {a: 0.0 for a in asset_cols}
-    SESSION["asset_buckets"]     = {}
-    SESSION["portfolios"]        = {}
-    SESSION["precalc"]           = {}
-    SESSION["improvements"]      = None
-    SESSION["improvements_meta"] = None
-
-    return {"asset_cols": asset_cols, "note_ids": note_ids, "row_count": len(df)}
+    result = _parse_and_load_xlsx(contents, os.path.basename(abs_path))
+    # Also persist so future restarts auto-load this file
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(UPLOAD_PATH, "wb") as f:
+        f.write(contents)
+    return {k: result[k] for k in ("asset_cols", "note_ids", "row_count")}
 
 
 # ── Portfolio summary (pre-framework overview) ────────────────────────────────
