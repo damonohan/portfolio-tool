@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { api, NoteMeta } from "@/lib/api";
 
 const NOTE_TYPES = ["Income", "Growth", "Digital", "Absolute", "MLCD", "PPN"] as const;
 
@@ -14,7 +14,7 @@ interface NoteRow {
 
 interface Props {
   noteIds:          string[];
-  noteSuggestions:  Record<string, { type: string; yield_pct: number }>;
+  noteSuggestions:  Record<string, NoteMeta>;
   onContinue:       () => void;
 }
 
@@ -30,6 +30,10 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
       };
     })
   );
+
+  // Extended metadata from the Notes sheet — read-only display columns
+  const [extendedMeta, setExtendedMeta] = useState<Record<string, NoteMeta>>({});
+
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
   const [saved,   setSaved]   = useState(false);
@@ -39,6 +43,17 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
     api.sessionState().then((state) => {
       const meta        = state.note_meta        ?? {};
       const suggestions = state.note_suggestions ?? {};
+
+      // Store extended metadata for display (suggestions have the full Notes-sheet data)
+      const extended: Record<string, NoteMeta> = {};
+      for (const [id, m] of Object.entries(suggestions)) {
+        extended[id] = m as NoteMeta;
+      }
+      // Also fill from confirmed meta if suggestions not available
+      for (const [id, m] of Object.entries(meta)) {
+        if (!extended[id]) extended[id] = m as NoteMeta;
+      }
+      setExtendedMeta(extended);
 
       if (Object.keys(meta).length > 0) {
         // Previously confirmed classifications take priority
@@ -73,6 +88,13 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
     );
   };
 
+  // Check whether any note has extended metadata to show those columns
+  const hasUnderlier      = noteIds.some((id) => extendedMeta[id]?.underlier);
+  const hasProtectionType = noteIds.some((id) => extendedMeta[id]?.protection_type);
+  const hasProtectionPct  = noteIds.some((id) => (extendedMeta[id]?.protection_pct ?? 0) > 0);
+  const hasCallability    = noteIds.some((id) => extendedMeta[id]?.callability);
+  const showExtended      = hasUnderlier || hasProtectionType || hasProtectionPct || hasCallability;
+
   const autoCount = rows.filter((r) => r.auto_detected && r.note_type).length;
 
   const handleSave = async () => {
@@ -101,11 +123,12 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <h2 className="text-xl font-bold text-slate-800 mb-1">Classify Notes</h2>
         <p className="text-sm text-slate-500 mb-4">
           Assign a type to each detected note. Income notes require an expected annual yield.
+          {showExtended && " Extended metadata from the Notes sheet is shown for reference (read-only)."}
         </p>
 
         {autoCount > 0 && (
@@ -122,66 +145,113 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
           <table className="w-full text-sm">
             <thead>
               <tr>
-                <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500">
+                <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
                   Note ID
                 </th>
                 <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500">
                   Type
                 </th>
-                <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500">
+                <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
                   Expected Yield (%) <span className="text-slate-400 font-normal">— Income only</span>
                 </th>
+                {/* Extended metadata columns — shown only when Notes sheet data is present */}
+                {hasUnderlier && (
+                  <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
+                    Underlier
+                  </th>
+                )}
+                {hasProtectionType && (
+                  <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
+                    Protection Type
+                  </th>
+                )}
+                {hasProtectionPct && (
+                  <th className="px-4 py-3 text-right font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
+                    Prot %
+                  </th>
+                )}
+                {hasCallability && (
+                  <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
+                    Callability
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, idx) => (
-                <tr key={row.note_id} className={idx % 2 === 0 ? "" : "bg-slate-50"}>
-                  <td className="px-4 py-3 border-b border-slate-100 font-mono font-medium">
-                    {row.note_id}
-                    {row.auto_detected && (
-                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-medium">
-                        auto
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100">
-                    <select
-                      value={row.note_type}
-                      onChange={(e) => update(idx, "note_type", e.target.value)}
-                      className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-36 ${
-                        row.auto_detected
-                          ? "border-blue-300 bg-blue-50"
-                          : "border-slate-300"
-                      }`}
-                    >
-                      <option value="">— select —</option>
-                      {NOTE_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100">
-                    {row.note_type === "Income" ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={row.yield_pct}
-                        onChange={(e) => update(idx, "yield_pct", parseFloat(e.target.value) || 0)}
-                        className={`border rounded-lg px-2 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              {rows.map((row, idx) => {
+                const ext = extendedMeta[row.note_id];
+                return (
+                  <tr key={row.note_id} className={idx % 2 === 0 ? "" : "bg-slate-50"}>
+                    <td className="px-4 py-3 border-b border-slate-100 font-mono font-medium whitespace-nowrap">
+                      {row.note_id}
+                      {row.auto_detected && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-sans font-medium">
+                          auto
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 border-b border-slate-100">
+                      <select
+                        value={row.note_type}
+                        onChange={(e) => update(idx, "note_type", e.target.value)}
+                        className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-36 ${
                           row.auto_detected
                             ? "border-blue-300 bg-blue-50"
                             : "border-slate-300"
                         }`}
-                      />
-                    ) : (
-                      <span className="text-slate-400">N/A</span>
+                      >
+                        <option value="">— select —</option>
+                        {NOTE_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 border-b border-slate-100">
+                      {row.note_type === "Income" ? (
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={row.yield_pct}
+                          onChange={(e) => update(idx, "yield_pct", parseFloat(e.target.value) || 0)}
+                          className={`border rounded-lg px-2 py-1.5 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            row.auto_detected
+                              ? "border-blue-300 bg-blue-50"
+                              : "border-slate-300"
+                          }`}
+                        />
+                      ) : (
+                        <span className="text-slate-400">N/A</span>
+                      )}
+                    </td>
+                    {/* Extended metadata cells (read-only) */}
+                    {hasUnderlier && (
+                      <td className="px-4 py-3 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                        {ext?.underlier || <span className="text-slate-300">—</span>}
+                      </td>
                     )}
-                  </td>
-                </tr>
-              ))}
+                    {hasProtectionType && (
+                      <td className="px-4 py-3 border-b border-slate-100 text-slate-600">
+                        {ext?.protection_type || <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
+                    {hasProtectionPct && (
+                      <td className="px-4 py-3 border-b border-slate-100 text-right text-slate-600">
+                        {(ext?.protection_pct ?? 0) > 0
+                          ? `${ext!.protection_pct}%`
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
+                    {hasCallability && (
+                      <td className="px-4 py-3 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                        {ext?.callability || <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
