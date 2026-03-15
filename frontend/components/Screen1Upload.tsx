@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { api } from "@/lib/api";
+import { api, NoteMeta } from "@/lib/api";
 
 interface Props {
   onContinue: (data: {
@@ -10,7 +10,7 @@ interface Props {
     restoredPortfolios: number;
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
-    noteSuggestions: Record<string, { type: string; yield_pct: number }>;
+    noteSuggestions: Record<string, NoteMeta>;
     autoClassified: boolean;
   }) => void;
 }
@@ -26,7 +26,7 @@ export default function Screen1Upload({ onContinue }: Props) {
     restored_portfolios: number;
     restored_note_meta: boolean;
     restored_asset_meta: boolean;
-    note_suggestions: Record<string, { type: string; yield_pct: number }>;
+    note_suggestions: Record<string, NoteMeta>;
     auto_classified: boolean;
     preview: Record<string, unknown>[];
   } | null>(null);

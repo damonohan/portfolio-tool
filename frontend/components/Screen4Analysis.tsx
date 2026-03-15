@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { PrecalcMetrics, PrecalcCandidate, PortfolioPrecalc, RankedCandidate } from "@/lib/api";
+import { PrecalcMetrics, PrecalcCandidate, PortfolioPrecalc, RankedCandidate, FrameworkConfig } from "@/lib/api";
 import type { Framework } from "@/app/page";
 
 const OUTLOOKS      = ["Bearish", "Neutral", "Bullish"] as const;
@@ -9,10 +9,11 @@ const RISK_LEVELS   = ["Conservative", "Moderate", "Aggressive"] as const;
 const GOALS         = ["Growth", "Balanced", "Income"] as const;
 const HORIZONS      = [1, 2, 3] as const;
 
+// Fallback constants used when no framework config is loaded yet
 const NOTE_TYPES_GROWTH = new Set(["Growth", "Digital", "Absolute"]);
 const NOTE_TYPES_INCOME = new Set(["Income", "MLCD", "PPN"]);
 
-const RISK_MAX: Record<string, number> = {
+const RISK_MAX_FALLBACK: Record<string, number> = {
   Conservative: 0.175,
   Moderate:     0.275,
   Aggressive:   0.375,
@@ -33,11 +34,12 @@ function rankScore(
 }
 
 interface Props {
-  portfolioNames: string[];
+  portfolioNames:  string[];
   initialFramework: Framework;
-  precalcData: Record<string, PortfolioPrecalc>;
-  precalcLoading: boolean;
-  onContinue: (framework: Framework) => void;
+  precalcData:     Record<string, PortfolioPrecalc>;
+  precalcLoading:  boolean;
+  frameworkConfig: FrameworkConfig | null;
+  onContinue:      (framework: Framework) => void;
 }
 
 export default function Screen4Analysis({
@@ -45,6 +47,7 @@ export default function Screen4Analysis({
   initialFramework,
   precalcData,
   precalcLoading,
+  frameworkConfig,
   onContinue,
 }: Props) {
   const [outlook,  setOutlook]  = useState<string>(initialFramework.outlook  || "Neutral");
@@ -74,16 +77,32 @@ export default function Screen4Analysis({
 
     if (!base) return { baseMetrics: null, ranked: [] };
 
-    const riskMax     = RISK_MAX[risk] ?? 0.275;
-    const allowedTypes = goal === "Growth"   ? NOTE_TYPES_GROWTH
-                       : goal === "Income"   ? NOTE_TYPES_INCOME
-                       : new Set([...NOTE_TYPES_GROWTH, ...NOTE_TYPES_INCOME]);
+    // 27-cell config lookup — falls back to hardcoded behaviour when config not loaded yet
+    const cellKey  = `${outlook}|${risk}|${goal}`;
+    const cell     = frameworkConfig?.cells[cellKey];
+
+    // Fallback values (used only when cell config is unavailable)
+    const riskMaxFallback  = RISK_MAX_FALLBACK[risk] ?? 0.275;
+    const allowedTypesFallback = goal === "Growth" ? NOTE_TYPES_GROWTH
+                               : goal === "Income" ? NOTE_TYPES_INCOME
+                               : new Set([...NOTE_TYPES_GROWTH, ...NOTE_TYPES_INCOME]);
 
     // Filter + score
     const scored: RankedCandidate[] = [];
     for (const c of candidates) {
-      if (c.alloc_pct > riskMax + 1e-9) continue;
-      if (!allowedTypes.has(c.note_type)) continue;
+      if (cell) {
+        // ── Apply 27-cell framework config ──────────────────────────────
+        if (c.alloc_pct > cell.max_alloc_pct / 100 + 1e-9) continue;
+        if (cell.allowed_types.length > 0 && !cell.allowed_types.includes(c.note_type)) continue;
+        if (cell.allowed_underlyings.length > 0 && !cell.allowed_underlyings.includes(c.underlier)) continue;
+        if (cell.allowed_protection_types.length > 0 && !cell.allowed_protection_types.includes(c.protection_type)) continue;
+        if (c.protection_pct < cell.min_protection_pct) continue;
+        if (c.protection_pct > cell.max_protection_pct) continue;
+      } else {
+        // ── Fallback hardcoded filter ────────────────────────────────────
+        if (c.alloc_pct > riskMaxFallback + 1e-9) continue;
+        if (!allowedTypesFallback.has(c.note_type)) continue;
+      }
       const score = rankScore(base, c.metrics, goal);
       scored.push({
         note_id:      c.note_id,
@@ -110,7 +129,7 @@ export default function Screen4Analysis({
     }
 
     return { baseMetrics: base, ranked: top5 };
-  }, [portName, outlook, risk, goal, horizon, precalcData]);
+  }, [portName, outlook, risk, goal, horizon, precalcData, frameworkConfig]);
 
   const RadioGroup = ({
     label, options, value, onChange,

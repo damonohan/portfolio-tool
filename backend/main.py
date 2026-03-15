@@ -95,7 +95,27 @@ def _db_save_session(fp: str) -> None:
         "updated_at": datetime.now(timezone.utc).isoformat(),
     })
     db[fp] = entry
+    # Persist framework_config at top level (not fingerprint-keyed — global across files)
+    if SESSION.get("framework_config"):
+        db["framework_config"] = SESSION["framework_config"]
     _save_db(db)
+
+
+def _db_save_framework_config() -> None:
+    """Persist framework_config at top level of DB (independent of file fingerprint)."""
+    db = _load_db()
+    db["framework_config"] = SESSION["framework_config"]
+    _save_db(db)
+
+
+def _db_load_framework_config() -> None:
+    """Load framework_config from DB top-level key into SESSION."""
+    db = _load_db()
+    saved = db.get("framework_config")
+    if saved and saved.get("cells"):
+        SESSION["framework_config"] = saved
+    else:
+        SESSION["framework_config"] = _default_framework_config()
 
 
 # ── In-memory session store ───────────────────────────────────────────────────
@@ -114,6 +134,7 @@ SESSION: dict[str, Any] = {
     "improvements_meta": None, # {base_returns, base_metrics, framework}
     "fingerprint":       "",
     "note_suggestions":  {},   # auto-classified from Tracking/Notes sheet
+    "framework_config":  {},   # configurable 27-cell eligibility grid (persisted top-level in DB)
 }
 
 
@@ -133,6 +154,7 @@ def reset_session() -> None:
         "improvements_meta": None,
         "fingerprint":       "",
         "note_suggestions":  {},
+        "framework_config":  _default_framework_config(),
     }
 
 
@@ -150,26 +172,50 @@ def _require_df() -> pd.DataFrame:
     return SESSION["df"]
 
 
-# ── Pre-calculation ───────────────────────────────────────────────────────────
+# ── Framework config helpers ──────────────────────────────────────────────────
 
-# Outlook configuration for pre-calc
-_OUTLOOK_CONFIG: dict[str, dict] = {
-    "Bullish": {
-        "note_types": NOTE_TYPES_GROWTH,
-        "buckets":    {"Equity"},
-        "out_max":    0.35,
-    },
-    "Bearish": {
-        "note_types": NOTE_TYPES_INCOME,
-        "buckets":    {"Equity", "Fixed Income"},
-        "out_max":    0.40,
-    },
-    "Neutral": {
-        "note_types": NOTE_TYPES_GROWTH | NOTE_TYPES_INCOME,
-        "buckets":    ALL_BUCKETS,
-        "out_max":    0.20,
-    },
+_OUTLOOKS       = ("Bullish", "Neutral", "Bearish")
+_RISKS          = ("Conservative", "Moderate", "Aggressive")
+_GOALS          = ("Growth", "Balanced", "Income")
+_RISK_ALLOC     = {"Conservative": 17.5, "Moderate": 27.5, "Aggressive": 37.5}
+
+_DEFAULT_TYPES: dict[str, list[str]] = {
+    "Bullish": ["Growth", "Digital", "Absolute"],
+    "Neutral": ["Growth", "Digital", "Absolute", "Income", "MLCD", "PPN"],
+    "Bearish": ["Income", "MLCD", "PPN", "Absolute"],
 }
+_DEFAULT_MIN_PROT: dict[str, dict[str, float]] = {
+    "Bearish": {"Conservative": 20.0, "Moderate": 15.0, "Aggressive": 10.0},
+}
+
+
+def _default_cell(outlook: str, risk: str, _goal: str) -> dict:
+    return {
+        "allowed_types":            list(_DEFAULT_TYPES[outlook]),
+        "allowed_underlyings":      [],
+        "allowed_protection_types": [],
+        "min_protection_pct":       _DEFAULT_MIN_PROT.get(outlook, {}).get(risk, 0.0),
+        "max_protection_pct":       100.0,
+        "max_alloc_pct":            _RISK_ALLOC[risk],
+    }
+
+
+def _default_framework_config() -> dict:
+    cells = {
+        f"{o}|{r}|{g}": _default_cell(o, r, g)
+        for o in _OUTLOOKS for r in _RISKS for g in _GOALS
+    }
+    return {
+        "outlook_buckets": {
+            "Bullish": ["Equity"],
+            "Bearish": ["Equity", "Fixed Income"],
+            "Neutral": ["Equity", "Fixed Income", "Alternative", "Cash"],
+        },
+        "cells": cells,
+    }
+
+
+# ── Pre-calculation ───────────────────────────────────────────────────────────
 
 
 def _run_precalc(portfolio_name: str) -> None:
@@ -227,11 +273,14 @@ def _run_precalc(portfolio_name: str) -> None:
             "expected_income_pct":  round(inc_pct,      4),
         }
 
-    # Candidates per outlook per horizon
-    for outlook, cfg in _OUTLOOK_CONFIG.items():
-        allowed_buckets = cfg["buckets"]
-        out_max         = cfg["out_max"]
-        allowed_types   = cfg["note_types"]
+    # Candidates per outlook per horizon — uses framework_config for bucket selection;
+    # NO note-type filtering here: all notes computed, filtering applied at ranking time.
+    fw_cfg      = SESSION.get("framework_config") or _default_framework_config()
+    out_buckets = fw_cfg.get("outlook_buckets", _default_framework_config()["outlook_buckets"])
+    global_max  = 0.40   # compute up to 40%; per-cell cap applied client-side / at ranking time
+
+    for outlook in ("Bullish", "Bearish", "Neutral"):
+        allowed_buckets = set(out_buckets.get(outlook, []))
 
         # Bucket assets eligible for reduction under this outlook
         bucket_assets = [a for a, b in asset_buckets.items() if b in allowed_buckets and a in weights]
@@ -254,15 +303,11 @@ def _run_precalc(portfolio_name: str) -> None:
                 meta      = note_meta.get(note_id, {})
                 note_type = meta.get("type", "")
 
-                # Outlook eligibility filter
-                if note_type not in allowed_types:
-                    continue
-
                 note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
 
                 step  = 0.05
                 alloc = step
-                while alloc <= out_max + 1e-9:
+                while alloc <= global_max + 1e-9:
                     alloc_r = round(alloc, 4)
                     if alloc_r > bucket_total + 1e-6:
                         alloc += step
@@ -296,9 +341,12 @@ def _run_precalc(portfolio_name: str) -> None:
                     )
                     if improves:
                         candidates.append({
-                            "note_id":   note_id,
-                            "note_type": note_type,
-                            "alloc_pct": alloc_r,   # fraction, e.g. 0.05
+                            "note_id":        note_id,
+                            "note_type":      note_type,
+                            "alloc_pct":      alloc_r,
+                            "underlier":      meta.get("underlier", ""),
+                            "protection_type": meta.get("protection_type", ""),
+                            "protection_pct": meta.get("protection_pct", 0.0),
                             "metrics": {
                                 "sharpe":       round(m["sharpe"],  4),
                                 "pct_neg":      round(m["pct_neg"], 4),
@@ -318,7 +366,10 @@ def _run_precalc(portfolio_name: str) -> None:
 
 @app.on_event("startup")
 async def startup_event():
-    """Auto-load the last uploaded file on startup so state survives redeploys."""
+    """Auto-load the last uploaded file and framework config on startup."""
+    # Always restore framework config first (independent of file)
+    _db_load_framework_config()
+    # Then restore file + portfolio data if available
     if os.path.exists(UPLOAD_PATH):
         try:
             with open(UPLOAD_PATH, "rb") as f:
@@ -379,8 +430,15 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
                             except (ValueError, TypeError):
                                 yield_pct = 0.0
                     note_suggestions[nid] = {
-                        "type":      note_type,
-                        "yield_pct": yield_pct,
+                        "type":               note_type,
+                        "yield_pct":          yield_pct,
+                        "underlier":          str(row.get("Underlier", "") or "").strip(),
+                        "protection_type":    str(row.get("Protection Type", "") or "").strip(),
+                        "protection_pct":     float(row["Protection %"]) if pd.notna(row.get("Protection %")) else 0.0,
+                        "coupon_protection":  float(row["Coupon Protection"]) if pd.notna(row.get("Coupon Protection")) else None,
+                        "callability":        str(row.get("Callability", "") or "").strip(),
+                        "solve_for_param":    str(row.get("Solve For Param", "") or "").strip(),
+                        "quote_used":         float(row["Quote Used"]) if pd.notna(row.get("Quote Used")) else 0.0,
                     }
         except Exception:
             pass  # non-fatal — user classifies manually
@@ -535,6 +593,8 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(400, "Only .xlsx files are accepted.")
     contents = await file.read()
     result = _parse_and_load_xlsx(contents, file.filename)
+    # Restore framework config after parse (parse resets SESSION but config is global)
+    _db_load_framework_config()
     # Persist to disk so the file survives backend restarts / redeploys
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(UPLOAD_PATH, "wb") as f:
@@ -708,6 +768,37 @@ def trigger_precalc(portfolio_name: str):
     return {"ok": True, "portfolio_name": portfolio_name}
 
 
+# ── Framework config endpoints ────────────────────────────────────────────────
+
+@app.get("/framework-config")
+def get_framework_config():
+    cfg = SESSION.get("framework_config")
+    if not cfg:
+        cfg = _default_framework_config()
+        SESSION["framework_config"] = cfg
+    return cfg
+
+
+class FrameworkConfigRequest(BaseModel):
+    outlook_buckets: dict[str, list[str]]
+    cells: dict[str, dict]
+
+
+@app.post("/framework-config")
+def save_framework_config(req: FrameworkConfigRequest):
+    SESSION["framework_config"] = {
+        "outlook_buckets": req.outlook_buckets,
+        "cells":           req.cells,
+    }
+    _db_save_framework_config()
+    # Re-run precalc for all saved portfolios since eligibility rules changed
+    if SESSION["df"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
+        for name in list(SESSION["portfolios"].keys()):
+            _run_precalc(name)
+        _db_save_session(SESSION["fingerprint"])
+    return {"ok": True}
+
+
 # ── Improvement search ────────────────────────────────────────────────────────
 
 class FindImprovementsRequest(BaseModel):
@@ -716,19 +807,6 @@ class FindImprovementsRequest(BaseModel):
     risk_tolerance: str
     goal:           str
     horizon:        int   # 1, 2, or 3
-
-
-_RISK_MAX: dict[str, float] = {
-    "Conservative": 0.175,
-    "Moderate":     0.275,
-    "Aggressive":   0.375,
-}
-
-_GOAL_TYPES: dict[str, set[str]] = {
-    "Growth":   NOTE_TYPES_GROWTH,
-    "Income":   NOTE_TYPES_INCOME,
-    "Balanced": NOTE_TYPES_GROWTH | NOTE_TYPES_INCOME,
-}
 
 
 @app.post("/find-improvements")
@@ -744,18 +822,30 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
     base_m       = precalc_port["_base"][h_key]
     candidates   = precalc_port.get(req.outlook, {}).get(h_key, [])
 
-    # Risk-tolerance cap
-    risk_max = _RISK_MAX.get(req.risk_tolerance, 0.275)
-
-    # Goal filter
-    allowed_types = _GOAL_TYPES.get(req.goal, NOTE_TYPES_GROWTH | NOTE_TYPES_INCOME)
+    # 27-cell config filter
+    cell_key = f"{req.outlook}|{req.risk_tolerance}|{req.goal}"
+    fw_cfg   = SESSION.get("framework_config") or _default_framework_config()
+    cell     = fw_cfg.get("cells", {}).get(cell_key, _default_cell(req.outlook, req.risk_tolerance, req.goal))
+    max_alloc_frac = cell.get("max_alloc_pct", 27.5) / 100.0
+    allowed_types  = cell.get("allowed_types", [])
+    allowed_und    = cell.get("allowed_underlyings", [])
+    allowed_ptype  = cell.get("allowed_protection_types", [])
+    min_prot       = cell.get("min_protection_pct", 0.0)
+    max_prot       = cell.get("max_protection_pct", 100.0)
 
     # Filter and score
     scored: list[dict] = []
     for cand in candidates:
-        if cand["alloc_pct"] > risk_max + 1e-9:
+        if cand["alloc_pct"] > max_alloc_frac + 1e-9:
             continue
-        if cand["note_type"] not in allowed_types:
+        if allowed_types and cand["note_type"] not in allowed_types:
+            continue
+        if allowed_und and cand.get("underlier", "") not in allowed_und:
+            continue
+        if allowed_ptype and cand.get("protection_type", "") not in allowed_ptype:
+            continue
+        prot = cand.get("protection_pct", 0.0)
+        if prot < min_prot or prot > max_prot:
             continue
         score = rank_score(base_m, cand["metrics"], req.goal)
         scored.append({**cand, "score": score})
@@ -790,8 +880,8 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
     risk_free  = port.get("risk_free", 2.0)
     asset_cols = list(weights.keys())
 
-    cfg            = _OUTLOOK_CONFIG[req.outlook]
-    allowed_bkts   = cfg["buckets"]
+    out_bkts_cfg   = (SESSION.get("framework_config") or _default_framework_config())["outlook_buckets"]
+    allowed_bkts   = set(out_bkts_cfg.get(req.outlook, []))
     bucket_assets  = [a for a, b in SESSION["asset_buckets"].items() if b in allowed_bkts and a in weights]
     bucket_total   = sum(weights[a] for a in bucket_assets) if bucket_assets else 0.0
 
@@ -1277,9 +1367,10 @@ def session_state():
         "asset_yields":      SESSION["asset_yields"],
         "asset_buckets":     SESSION["asset_buckets"],
         "portfolios":        list(SESSION["portfolios"].keys()),
-        "has_precalc":       bool(SESSION["precalc"]),
-        "has_improvements":  bool(SESSION.get("improvements")),
-        "note_suggestions":  SESSION.get("note_suggestions", {}),
+        "has_precalc":           bool(SESSION["precalc"]),
+        "has_improvements":      bool(SESSION.get("improvements")),
+        "note_suggestions":      SESSION.get("note_suggestions", {}),
+        "has_framework_config":  bool((SESSION.get("framework_config") or {}).get("cells")),
     }
 
 

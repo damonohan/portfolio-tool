@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api, PortfolioPrecalc } from "@/lib/api";
+import { api, PortfolioPrecalc, FrameworkConfig, NoteMeta } from "@/lib/api";
 import StepNav from "@/components/StepNav";
 import Screen1Upload from "@/components/Screen1Upload";
 import Screen2ClassifyNotes from "@/components/Screen2ClassifyNotes";
@@ -9,6 +9,7 @@ import Screen3PortfolioBuilder from "@/components/Screen3PortfolioBuilder";
 import Screen4PortfolioSummary from "@/components/Screen4PortfolioSummary";
 import Screen4Analysis from "@/components/Screen4Analysis";
 import Screen5Improvements from "@/components/Screen5Improvements";
+import ScreenFrameworkConfig from "@/components/ScreenFrameworkConfig";
 
 // risk_free removed — now stored per-portfolio on the backend
 export type Framework = {
@@ -26,9 +27,9 @@ export default function Home() {
   // Per-file state
   const [assetCols, setAssetCols]         = useState<string[]>([]);
   const [noteIds, setNoteIds]             = useState<string[]>([]);
-  const [noteMeta, setNoteMeta]           = useState<Record<string, { type: string; yield_pct: number }>>({});
+  const [noteMeta, setNoteMeta]           = useState<Record<string, NoteMeta>>({});
   const [portNames, setPortNames]         = useState<string[]>([]);
-  const [noteSuggestions, setNoteSuggestions] = useState<Record<string, { type: string; yield_pct: number }>>({});
+  const [noteSuggestions, setNoteSuggestions] = useState<Record<string, NoteMeta>>({});
 
   // Pre-calc data — loaded after portfolios are saved, passed to Screen 5
   const [precalcData, setPrecalcData]       = useState<Record<string, PortfolioPrecalc>>({});
@@ -42,6 +43,10 @@ export default function Home() {
     portfolio_name: "",
     horizon: 1,
   });
+
+  // Framework config (27-cell grid) — loaded once from backend
+  const [frameworkConfig, setFrameworkConfig] = useState<FrameworkConfig | null>(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
 
   // Restore-notification (shown briefly after upload)
   const [restoreMsg, setRestoreMsg] = useState("");
@@ -58,8 +63,18 @@ export default function Home() {
     }
   };
 
+  const loadFrameworkConfig = async () => {
+    try {
+      const cfg = await api.getFrameworkConfig();
+      setFrameworkConfig(cfg);
+    } catch {
+      // non-fatal
+    }
+  };
+
   // Restore session on mount (handles page refresh)
   useEffect(() => {
+    loadFrameworkConfig();
     api.sessionState().then((state) => {
       if (!state.has_file) return;
       setAssetCols(state.asset_cols);
@@ -85,7 +100,7 @@ export default function Home() {
       setStep(targetStep);
       setMaxStep(targetStep);
     }).catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const advanceTo = (s: number) => {
     setStep(s);
@@ -111,7 +126,7 @@ export default function Home() {
     restoredPortfolios: number;
     restoredNoteMeta: boolean;
     restoredAssetMeta: boolean;
-    noteSuggestions: Record<string, { type: string; yield_pct: number }>;
+    noteSuggestions: Record<string, NoteMeta>;
     autoClassified: boolean;
   }) => {
     setAssetCols(data.assetCols);
@@ -162,6 +177,14 @@ export default function Home() {
     advanceTo(6);
   };
 
+  const handleConfigSaved = (cfg: FrameworkConfig) => {
+    setFrameworkConfig(cfg);
+    // Re-load precalc since eligibility rules changed
+    if (portNames.length > 0) {
+      loadPrecalc();
+    }
+  };
+
   // When navigating back to step 5 from step 6, keep maxStep at 6 so user can go forward again
   const handleStepClick = (s: number) => {
     setStep(s);
@@ -180,11 +203,23 @@ export default function Home() {
               <p className="text-xs text-slate-500">Monte Carlo–based improvement analysis</p>
             </div>
           </div>
-          {restoreMsg && (
-            <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-2 rounded-lg">
-              <span>✓</span> {restoreMsg}
-            </div>
-          )}
+
+          <div className="flex items-center gap-3">
+            {restoreMsg && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-2 rounded-lg">
+                <span>✓</span> {restoreMsg}
+              </div>
+            )}
+            {/* Framework config gear button */}
+            <button
+              onClick={() => setShowConfigModal(true)}
+              title="Framework Configuration"
+              className="flex items-center gap-1.5 border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+            >
+              <span className="text-base">⚙</span>
+              <span className="hidden sm:inline">Framework</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -225,6 +260,7 @@ export default function Home() {
             initialFramework={framework}
             precalcData={precalcData}
             precalcLoading={precalcLoading}
+            frameworkConfig={frameworkConfig}
             onContinue={handleFrameworkDone}
           />
         )}
@@ -233,6 +269,15 @@ export default function Home() {
           <Screen5Improvements framework={framework} />
         )}
       </main>
+
+      {/* Framework config modal */}
+      {showConfigModal && (
+        <ScreenFrameworkConfig
+          initialConfig={frameworkConfig}
+          onClose={() => setShowConfigModal(false)}
+          onSaved={handleConfigSaved}
+        />
+      )}
     </div>
   );
 }

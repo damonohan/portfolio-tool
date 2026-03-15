@@ -23,7 +23,7 @@ export const api = {
       restored_portfolios: number;
       restored_note_meta: boolean;
       restored_asset_meta: boolean;
-      note_suggestions: Record<string, { type: string; yield_pct: number }>;
+      note_suggestions: Record<string, NoteMeta>;
       auto_classified: boolean;
       preview: Record<string, unknown>[];
     }>("/upload", { method: "POST", body: fd });
@@ -92,13 +92,14 @@ export const api = {
       fingerprint: string;
       asset_cols: string[];
       note_ids: string[];
-      note_meta: Record<string, { type: string; yield_pct: number }>;
+      note_meta: Record<string, NoteMeta>;
       asset_yields: Record<string, number>;
       asset_buckets: Record<string, string>;
       portfolios: string[];
       has_precalc: boolean;
       has_improvements: boolean;
-      note_suggestions: Record<string, { type: string; yield_pct: number }>;
+      note_suggestions: Record<string, NoteMeta>;
+      has_framework_config: boolean;
     }>("/session-state"),
 
   portfolioSummary: (horizon = 1, riskFree = 2.0) =>
@@ -133,9 +134,46 @@ export const api = {
       { method: "POST" }
     ),
 
+  getFrameworkConfig: () => req<FrameworkConfig>("/framework-config"),
+
+  saveFrameworkConfig: (config: FrameworkConfig) =>
+    req<{ ok: boolean }>("/framework-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    }),
+
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
 };
+
+// ── Note metadata (extended from Notes sheet) ──────────────────────────────
+export interface NoteMeta {
+  type: string;
+  yield_pct: number;
+  underlier: string;
+  protection_type: string;
+  protection_pct: number;
+  coupon_protection: number | null;
+  callability: string;
+  solve_for_param: string;
+  quote_used: number;
+}
+
+// ── Framework config (27-cell grid) ────────────────────────────────────────
+export interface CellConfig {
+  allowed_types: string[];
+  allowed_underlyings: string[];
+  allowed_protection_types: string[];
+  min_protection_pct: number;
+  max_protection_pct: number;
+  max_alloc_pct: number;
+}
+
+export interface FrameworkConfig {
+  outlook_buckets: Record<string, string[]>;
+  cells: Record<string, CellConfig>;  // key = "outlook|risk_tolerance|goal"
+}
 
 export interface HorizonMetrics {
   sharpe: number;
@@ -186,6 +224,9 @@ export interface PrecalcCandidate {
   note_id: string;
   note_type: string;
   alloc_pct: number;  // fraction, e.g. 0.05
+  underlier: string;
+  protection_type: string;
+  protection_pct: number;
   metrics: {
     sharpe: number;
     pct_neg: number;
