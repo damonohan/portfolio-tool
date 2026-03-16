@@ -143,6 +143,9 @@ export const api = {
       body: JSON.stringify(config),
     }),
 
+  resetFrameworkConfig: () =>
+    req<{ ok: boolean; config: FrameworkConfig }>("/framework-config/reset", { method: "POST" }),
+
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
 };

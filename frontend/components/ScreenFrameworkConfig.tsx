@@ -21,9 +21,10 @@ export default function ScreenFrameworkConfig({ initialConfig, onClose, onSaved 
   const [config, setConfig]           = useState<FrameworkConfig | null>(initialConfig);
   const [activeTab, setActiveTab]     = useState<TabKey>("buckets");
   const [expandedCell, setExpanded]   = useState<string | null>(null);
-  const [saving, setSaving]           = useState(false);
-  const [error,  setError]            = useState("");
-  const [saved,  setSaved]            = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error,    setError]    = useState("");
+  const [saved,    setSaved]    = useState(false);
 
   // If no config was passed in, fetch from backend
   useEffect(() => {
@@ -74,6 +75,22 @@ export default function ScreenFrameworkConfig({ initialConfig, onClose, onSaved 
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm("Reset all 27 cells to built-in defaults? Your customisations will be lost.")) return;
+    setResetting(true);
+    setError("");
+    try {
+      const result = await api.resetFrameworkConfig();
+      setConfig(result.config);
+      setSaved(true);
+      onSaved(result.config);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Reset failed");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -322,6 +339,13 @@ export default function ScreenFrameworkConfig({ initialConfig, onClose, onSaved 
           </div>
           <div className="flex gap-3">
             <button
+              onClick={handleReset}
+              disabled={resetting || saving}
+              className="border border-amber-300 text-amber-700 font-semibold py-2 px-4 rounded-lg text-sm hover:bg-amber-50 transition-colors disabled:opacity-50"
+            >
+              {resetting ? "Resetting…" : "Reset to Defaults"}
+            </button>
+            <button
               onClick={onClose}
               className="border border-slate-300 text-slate-600 font-semibold py-2 px-4 rounded-lg text-sm hover:bg-slate-100 transition-colors"
             >
@@ -329,7 +353,7 @@ export default function ScreenFrameworkConfig({ initialConfig, onClose, onSaved 
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || resetting}
               className="bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2 px-6 rounded-lg text-sm transition-colors disabled:opacity-50 flex items-center gap-2"
             >
               {saving && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}

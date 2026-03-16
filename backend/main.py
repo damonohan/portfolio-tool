@@ -177,15 +177,18 @@ def _require_df() -> pd.DataFrame:
 _OUTLOOKS       = ("Bullish", "Neutral", "Bearish")
 _RISKS          = ("Conservative", "Moderate", "Aggressive")
 _GOALS          = ("Growth", "Balanced", "Income")
-_RISK_ALLOC     = {"Conservative": 17.5, "Moderate": 27.5, "Aggressive": 37.5}
+_MAX_ALLOC      = 30.0   # flat max allocation for every cell
 
 _DEFAULT_TYPES: dict[str, list[str]] = {
     "Bullish": ["Growth", "Digital", "Absolute"],
     "Neutral": ["Growth", "Digital", "Absolute", "Income", "MLCD", "PPN"],
     "Bearish": ["Income", "MLCD", "PPN", "Absolute"],
 }
+# Min protection % tiered by risk × outlook (same for all 3 goals within each combo)
 _DEFAULT_MIN_PROT: dict[str, dict[str, float]] = {
-    "Bearish": {"Conservative": 20.0, "Moderate": 15.0, "Aggressive": 10.0},
+    "Conservative": {"Bullish": 25.0, "Neutral": 30.0, "Bearish": 35.0},
+    "Moderate":     {"Bullish": 20.0, "Neutral": 25.0, "Bearish": 30.0},
+    "Aggressive":   {"Bullish": 15.0, "Neutral": 20.0, "Bearish": 25.0},
 }
 
 
@@ -194,9 +197,9 @@ def _default_cell(outlook: str, risk: str, _goal: str) -> dict:
         "allowed_types":            list(_DEFAULT_TYPES[outlook]),
         "allowed_underlyings":      [],
         "allowed_protection_types": [],
-        "min_protection_pct":       _DEFAULT_MIN_PROT.get(outlook, {}).get(risk, 0.0),
+        "min_protection_pct":       _DEFAULT_MIN_PROT[risk][outlook],
         "max_protection_pct":       100.0,
-        "max_alloc_pct":            _RISK_ALLOC[risk],
+        "max_alloc_pct":            _MAX_ALLOC,
     }
 
 
@@ -301,6 +304,10 @@ def _run_precalc(portfolio_name: str) -> None:
                 if note_col is None:
                     continue
                 meta      = note_meta.get(note_id, {})
+                # Extended fields (underlier, protection_type, protection_pct) live in
+                # note_suggestions (parsed from the Notes sheet), NOT in note_meta which
+                # only stores the user-editable type + yield_pct.
+                ext       = SESSION.get("note_suggestions", {}).get(note_id, {})
                 note_type = meta.get("type", "")
 
                 note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
@@ -344,9 +351,9 @@ def _run_precalc(portfolio_name: str) -> None:
                             "note_id":        note_id,
                             "note_type":      note_type,
                             "alloc_pct":      alloc_r,
-                            "underlier":      meta.get("underlier", ""),
-                            "protection_type": meta.get("protection_type", ""),
-                            "protection_pct": meta.get("protection_pct", 0.0),
+                            "underlier":       ext.get("underlier",       ""),
+                            "protection_type": ext.get("protection_type", ""),
+                            "protection_pct":  ext.get("protection_pct",  0.0),
                             "metrics": {
                                 "sharpe":       round(m["sharpe"],  4),
                                 "pct_neg":      round(m["pct_neg"], 4),
@@ -375,6 +382,16 @@ async def startup_event():
             with open(UPLOAD_PATH, "rb") as f:
                 contents = f.read()
             _parse_and_load_xlsx(contents, "simulation.xlsx")
+            # Re-run precalc for every restored portfolio so that extended metadata
+            # (underlier, protection_type, protection_pct) from the Notes sheet is
+            # picked up correctly — fixes any stale candidates that had protection_pct=0.0
+            for name in list(SESSION.get("portfolios", {}).keys()):
+                try:
+                    _run_precalc(name)
+                except Exception:
+                    pass
+            if SESSION.get("portfolios"):
+                _db_save_session(SESSION["fingerprint"])
         except Exception:
             pass  # non-fatal — user can re-upload if file is corrupt
 
@@ -797,6 +814,18 @@ def save_framework_config(req: FrameworkConfigRequest):
             _run_precalc(name)
         _db_save_session(SESSION["fingerprint"])
     return {"ok": True}
+
+
+@app.post("/framework-config/reset")
+def reset_framework_config():
+    """Reset framework config to built-in defaults and re-run precalc."""
+    SESSION["framework_config"] = _default_framework_config()
+    _db_save_framework_config()
+    if SESSION["df"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
+        for name in list(SESSION["portfolios"].keys()):
+            _run_precalc(name)
+        _db_save_session(SESSION["fingerprint"])
+    return {"ok": True, "config": SESSION["framework_config"]}
 
 
 # ── Improvement search ────────────────────────────────────────────────────────
