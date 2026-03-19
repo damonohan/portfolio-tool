@@ -100,23 +100,37 @@ Weights must sum to 1.0 (enforced on save in the portfolio builder).
 
 ## Portfolio Statistics
 
-**Function:** `compute_metrics(final_returns, risk_free_rate)`
+**Function:** `compute_metrics(final_returns, risk_free_rate, horizon)`
 
-All statistics are computed over the full distribution of `n_simulations` portfolio returns.
+All statistics are computed over the full distribution of `n_simulations` portfolio returns. Mean, Std, and Sharpe are **annualized** to enable comparison across different investment horizons.
 
-| Metric | Formula | Direction | Notes |
-|--------|---------|-----------|-------|
-| **Mean** | `np.mean(returns)` | Higher is better | Arithmetic mean of compounded returns |
-| **Std** | `np.std(returns, ddof=1)` | Lower is better | Sample standard deviation (ddof=1) |
-| **Sharpe** | `(mean − rfr) / std` | Higher is better | 0 when std = 0; rfr = risk_free_rate / 100 |
-| **% Negative** | `100 × count(r < 0) / n_sims` | Lower is better | Percentage of simulations ending in loss |
-| **Shorty** | `scipy.stats.kurtosis(returns, fisher=True)` | Lower is better | Excess kurtosis (normal = 0); measures tail heaviness |
+### Annualization
+
+Cumulative returns are converted to annualized equivalents before computing Mean, Std, and Sharpe:
+
+```
+ann_return[sim] = (1 + cumulative_return[sim]) ^ (1 / horizon) − 1
+```
+
+For a 1-year horizon this is a no-op. For multi-year horizons it extracts the equivalent per-year return.
+
+### Metrics
+
+| Metric | Formula | Direction | Annualized? |
+|--------|---------|-----------|-------------|
+| **Mean** | `np.mean(ann_returns)` | Higher is better | Yes |
+| **Std** | `np.std(ann_returns, ddof=1)` | Lower is better | Yes (std of annualized returns) |
+| **Sharpe** | `(mean − rfr) / std` | Higher is better | Yes — uses annualized mean & std; rfr = risk_free_rate / 100 |
+| **% Negative** | `100 × count(cumulative_r < 0) / n_sims` | Lower is better | No — uses raw cumulative returns |
+| **Shorty** | `scipy.stats.kurtosis(cumulative_returns, fisher=True)` | Lower is better | No — uses raw cumulative returns |
 
 ### Sharpe Ratio
-The Sharpe ratio uses the full-horizon cumulative return (not annualised) vs the risk-free rate converted to the same horizon. The risk-free rate input is the **annual** rate in %; the calculation uses it directly as the hurdle for the compounded horizon return. This is a simplification appropriate for internal comparison purposes.
+The Sharpe ratio uses annualized returns for cross-horizon comparability. The risk-free rate input is the **annual** rate in % (e.g. `2.0` = 2%) and is divided by 100 to get the fractional hurdle (e.g. `0.02`). When `std = 0`, Sharpe is returned as `0.0`.
+
+**Note:** Even with annualization, the Sharpe ratio may increase with longer horizons. This is the well-known "time diversification" effect — annualized volatility from compounded returns decreases roughly as `1/√horizon` while annualized mean stays roughly constant.
 
 ### Shorty (Excess Kurtosis)
-The "Shorty" metric is excess kurtosis — how much heavier the tails of the return distribution are compared to a normal distribution. A value of 0 is normal; positive values indicate fat tails (more extreme outcomes than normal). Lower Shorty is preferred as it implies more predictable tail behaviour.
+The "Shorty" metric is excess kurtosis — how much heavier the tails of the return distribution are compared to a normal distribution. A value of 0 is normal; positive values indicate fat tails (more extreme outcomes than normal). Lower Shorty is preferred as it implies more predictable tail behaviour. Computed from **raw cumulative returns** (not annualized).
 
 ---
 
@@ -145,62 +159,115 @@ All other note types (Growth, Digital, Absolute, MLCD, PPN) contribute 0 to expe
 
 ## Framework Constraint System
 
-**Function:** `framework_params(outlook, risk_tolerance, goal, note_type)`
+The framework uses a **27-cell configurable grid** (3 Outlooks × 3 Risk Tolerances × 3 Goals). Each cell independently controls which notes are eligible and at what maximum allocation.
 
-Before any note is evaluated, a three-level filter determines whether it is eligible and caps its maximum allocation.
-
-### Gate 1 — Goal Filter
-
-| Goal | Allowed Note Types |
-|------|--------------------|
-| Growth | Growth, Digital, Absolute |
-| Income | Income, MLCD, PPN |
-| Balanced | All types |
-
-If the note type is excluded by the goal, the function returns `(empty set, 0)` and the note is skipped entirely.
-
-### Gate 2 — Outlook Filter
-
-| Outlook | Additional Note Type Requirement | Allowed Buckets | Max Allocation |
-|---------|----------------------------------|-----------------|----------------|
-| Bullish | Growth notes only | Equity | 35% |
-| Bearish | Income notes only | Equity, Fixed Income | 40% |
-| Neutral | Any type (if goal allows) | Equity, Fixed Income, Alternative, Cash | 20% |
-
-For Income-type notes specifically, the allowed buckets are further intersected with `{Fixed Income, Cash, Equity}`. If that intersection is empty, it falls back to `{Fixed Income, Cash}`. This reflects the preference for funding income-generating notes from lower-growth allocation buckets.
-
-### Gate 3 — Risk Tolerance Cap
-
-| Risk Tolerance | Maximum Allocation |
-|---------------|--------------------|
-| Conservative | 17.5% |
-| Moderate | 27.5% |
-| Aggressive | 37.5% |
-
-These values represent the midpoints of the intended ranges (Conservative: 15–20%, Moderate: 25–30%, Aggressive: 35–40%).
-
-### Final Maximum Allocation
+### Cell Key Format
 
 ```
-max_alloc = min(outlook_max, risk_tolerance_max)
+"{outlook}|{risk_tolerance}|{goal}"
 ```
+Example: `"Bullish|Moderate|Growth"`
+
+### Cell Parameters
+
+Each of the 27 cells contains:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `allowed_types` | list | Note types allowed (e.g. `["Growth", "Digital", "Absolute"]`). Empty = all types. |
+| `allowed_underlyings` | list | Allowed note underliers (e.g. `["SPX", "RUT"]`). Empty = no filter. |
+| `allowed_protection_types` | list | Allowed protection types (e.g. `["Soft", "Hard"]`). Empty = no filter. |
+| `min_protection_pct` | float | Minimum protection % required (default `0.0`). |
+| `max_protection_pct` | float | Maximum protection % allowed (default `100.0`). |
+| `max_alloc_pct` | float | Maximum note allocation as % (default `30.0`). |
+
+### Outlook Buckets
+
+The framework also defines which asset buckets each outlook draws from during rebalancing:
+
+| Outlook | Allowed Buckets |
+|---------|-----------------|
+| Bullish | Equity |
+| Neutral | Equity, Fixed Income, Alternative, Cash |
+| Bearish | Equity, Fixed Income |
+
+### Default Allowed Types by Outlook
+
+| Outlook | Default `allowed_types` |
+|---------|------------------------|
+| Bullish | Growth, Digital, Absolute |
+| Neutral | Growth, Digital, Absolute, Income, MLCD, PPN |
+| Bearish | Income, MLCD, PPN |
+
+For **Balanced** goal cells, all note types are allowed regardless of outlook.
+
+### Filtering (applied at improvement search time)
+
+A candidate is included only if **all** of the following pass for its framework cell:
+
+1. `alloc_pct ≤ max_alloc_pct`
+2. `note_type ∈ allowed_types` (if list is non-empty)
+3. `underlier ∈ allowed_underlyings` (if list is non-empty)
+4. `protection_type ∈ allowed_protection_types` (if list is non-empty)
+5. `min_protection_pct ≤ protection_pct ≤ max_protection_pct`
+
+### Configuration Endpoints
+
+- `GET /framework-config` — returns current 27-cell config + outlook buckets
+- `POST /framework-config` — updates config, saves to DB, re-runs pre-calculation for all portfolios
+- `POST /framework-config/reset` — resets to built-in defaults, re-runs pre-calculation
+
+### Legacy Note
+
+The original 3-gate system (Goal → Outlook → Risk Tolerance Cap) documented in earlier versions has been fully replaced by this flexible framework. The `framework_params()` function in `calculations.py` is retained but unused.
 
 ---
 
-## Candidate Generation
+## Candidate Generation (Two-Phase Architecture)
 
-**Function:** `find_improvements(...)` in `calculations.py`
+Candidate evaluation uses a two-phase approach for performance: **pre-calculation** (compute once per portfolio) and **filtering** (apply per framework cell on demand).
 
-For each note that passes the framework filter:
+### Phase 1 — Pre-Calculation
 
-1. Identify which assets in the base portfolio belong to the allowed buckets (`bucket_assets`)
-2. Compute the total weight of those bucket assets (`bucket_total`)
-3. Skip if no bucket assets exist or their combined weight is zero
-4. Iterate allocations in 5% steps from 5% up to `max_alloc`:
-   ```
-   alloc ∈ {0.05, 0.10, 0.15, ..., max_alloc}
-   ```
-5. Also skip if `alloc > bucket_total` (cannot take more than the bucket holds)
+**Function:** `_run_precalc(portfolio_name)` in `main.py`
+
+Triggered when a portfolio is saved or the framework config changes. For each portfolio:
+
+1. Compute cumulative returns for all assets and notes at horizons 1, 2, and 3
+2. Compute **base metrics** (Sharpe, pct_neg, shorty, mean, std, expected_income) for each horizon
+3. For each of the 3 outlooks (Bullish, Neutral, Bearish):
+   - Determine allowed asset buckets from `outlook_buckets` config
+   - Identify bucket assets and their total weight (`bucket_total`)
+   - For each horizon, for each note:
+     - Test allocations in **5% steps from 5% to 40%** (flat ceiling for all cells)
+     - Pro-rata reduce bucket assets, compute new portfolio returns and metrics
+     - Apply acceptance criteria (see Section 9)
+     - Store accepted candidates with metrics (but **not** full 10k return arrays — only summary stats)
+
+Pre-calculated results are stored in `SESSION["precalc"][portfolio_name]` with structure:
+```
+{
+  "_base": { "1": {metrics}, "2": {metrics}, "3": {metrics} },
+  "Bullish": { "1": [candidates], "2": [candidates], "3": [candidates] },
+  "Neutral": { ... },
+  "Bearish": { ... }
+}
+```
+
+### Phase 2 — Framework Filtering
+
+**Endpoint:** `POST /find-improvements`
+
+When the user requests improvements with a specific (outlook, risk_tolerance, goal, horizon):
+
+1. Retrieve pre-computed candidates for the selected outlook and horizon
+2. Look up the framework cell config for `"{outlook}|{risk_tolerance}|{goal}"`
+3. Filter candidates by all cell rules (types, underliers, protection, max allocation — see Section 6)
+4. Score remaining candidates via `rank_score()` (see Section 10)
+5. Deduplicate by note ID, take top 5 (see Section 11)
+6. **Re-compute full portfolio return arrays** (10k floats) for the top 5 only — needed for histograms
+
+This separation means the expensive simulation work is done once, and framework changes only require re-filtering.
 
 ---
 
@@ -255,7 +322,7 @@ This OR-logic ensures candidates that excel on one dimension are not excluded fo
 
 **Function:** `rank_score(base, candidate, goal)`
 
-Accepted candidates are assigned a composite score. **Higher score = better candidate.**
+Accepted candidates are assigned a composite score. **Higher score = better candidate.** All metric deltas use **annualized** values (since both base and candidate metrics are annualized by `compute_metrics`).
 
 ```
 score = w_sharpe × (new_sharpe  − base_sharpe)
@@ -335,9 +402,9 @@ The histogram data is returned as a Plotly JSON object and rendered client-side 
 | Asset annual yield | Percentage | `2.0` = 2% pa |
 | Note annual yield | Percentage | `3.5` = 3.5% pa |
 | Risk-free rate | Percentage | `2.0` = 2% pa |
-| Mean return (metric output) | Fraction | `0.062` = 6.2% |
-| Std (metric output) | Fraction | `0.12` = 12% |
-| Sharpe ratio | Dimensionless | `0.45` |
+| Mean return (metric output) | Fraction (annualized) | `0.062` = 6.2% pa |
+| Std (metric output) | Fraction (annualized) | `0.12` = 12% pa |
+| Sharpe ratio | Dimensionless (annualized) | `0.45` |
 | % Negative | Percentage points | `12.3` = 12.3% of simulations |
 | Shorty (excess kurtosis) | Dimensionless | `1.4` |
 | Expected income | Percentage points | `1.8` = 1.8% pa |
