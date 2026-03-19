@@ -143,23 +143,29 @@ If the file contains a sheet named `Tracking` or `Notes`, the tool reads:
 - Notes section lists all classified notes with type badges and yields
 - See [CALCULATIONS.md](CALCULATIONS.md) for the full metric definitions
 
-### Step 5 — Framework Selection & Base Calculation
+### Step 5 — Framework Selection & Analysis
 User selects a market framework:
 - **Market Outlook:** Bearish / Neutral / Bullish
 - **Risk Tolerance:** Conservative / Moderate / Aggressive
 - **Portfolio Goal:** Income / Balanced / Growth
 - **Horizon:** 1 / 2 / 3 years
-- **Risk-Free Rate:** % per annum
 - **Starting Portfolio:** one of the saved portfolios
 
-Clicking **Calculate** runs `POST /calculate-base`, which computes the full set of portfolio statistics for the selected portfolio under the chosen horizon and RFR.
+The framework is a 27-cell configurable grid (Outlook × Risk Tolerance × Goal). Each cell controls which note types, underliers, and protection levels are eligible, plus a maximum allocation %. Users can customise the framework via the ⚙ Settings button in the header (see `ScreenFrameworkConfig.tsx`).
+
+Clicking **Continue** advances to Step 6, passing the selected framework parameters. No separate base calculation endpoint is called — base metrics are pre-computed when portfolios are saved.
 
 ### Step 6 — Improvements
-Runs `POST /find-improvements` automatically on mount. The engine:
-1. Filters notes by framework (Outlook × Risk Tolerance × Goal)
-2. For each eligible note, tries every 5%-increment allocation up to the framework cap
-3. Keeps only candidates that improve at least one metric vs the base
-4. Ranks by composite score; deduplicates to one best allocation per note; returns top 5
+Calls `POST /find-improvements` with the selected framework parameters. The engine uses a **two-phase architecture**:
+
+**Phase 1 — Pre-Calculation** (runs once per portfolio save or framework change):
+- Tests every note at 5%–40% allocation (5% steps) across all 3 outlooks and 3 horizons
+- Stores only summary metrics (not full return arrays) for accepted candidates
+
+**Phase 2 — Framework Filtering** (runs on demand per search):
+1. Retrieves pre-computed candidates for the selected outlook and horizon
+2. Filters by the framework cell's rules (allowed types, underliers, protection, max allocation)
+3. Scores, deduplicates to one best allocation per note, returns top 5
 
 Each row in the results table shows delta metrics vs the base. Users can expand any row to see an overlay histogram comparing return distributions. Export as CSV or PDF is available once results are loaded.
 
@@ -182,7 +188,7 @@ The backend persists state to `backend/portfolios_db.json`, keyed by a 16-charac
 - The simulation DataFrame itself (held only in memory)
 
 **Session restore on page load:**
-- `has_base = true` → jump directly to Step 6
+- `has_precalc = true` → jump to Step 5 (Framework Selection)
 - `portfolios saved AND asset buckets set` → jump to Step 4 (Portfolio Summary)
 - `note_meta saved` → jump to Step 3 (Portfolio Builder)
 - `file uploaded` → jump to Step 2 (Classify Notes)
@@ -193,20 +199,26 @@ The backend persists state to `backend/portfolios_db.json`, keyed by a 16-charac
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `POST` | `/reset` | Clear in-memory session |
 | `POST` | `/upload` | Parse `.xlsx`, detect columns, restore persisted state |
 | `POST` | `/classify-notes` | Save note type + yield classifications |
 | `POST` | `/asset-metadata` | Save asset yields + bucket assignments |
-| `POST` | `/portfolio/save` | Save a named portfolio with weights |
+| `POST` | `/portfolio/save` | Save a named portfolio with weights; triggers pre-calculation |
 | `DELETE` | `/portfolio/{name}` | Delete a saved portfolio |
 | `GET` | `/portfolios` | List all saved portfolios |
-| `POST` | `/calculate-base` | Compute base portfolio statistics |
-| `POST` | `/find-improvements` | Run improvement search, return top 5 |
+| `GET` | `/portfolio-precalc` | Return all pre-computed candidate data |
+| `POST` | `/precalc/{portfolio_name}` | Manually trigger pre-calculation for a portfolio |
+| `GET` | `/framework-config` | Return current 27-cell framework configuration |
+| `POST` | `/framework-config` | Update framework config; re-runs pre-calc for all portfolios |
+| `POST` | `/framework-config/reset` | Reset framework config to defaults |
+| `POST` | `/find-improvements` | Filter pre-computed candidates by framework cell, return top 5 |
 | `GET` | `/portfolio-summary` | Stats for all portfolios (horizon + RFR params) |
+| `GET` | `/portfolio-candidates` | All note × allocation combinations (pre-framework filtering) |
 | `GET` | `/histogram/{index}` | Plotly JSON for base vs candidate overlay |
 | `GET` | `/export/csv` | Download improvements table as CSV |
 | `GET` | `/export/pdf` | Download full report as PDF |
-| `GET` | `/session-state` | Return full current session for frontend restore |
-| `POST` | `/reset` | Clear in-memory session |
+| `GET` | `/session-state` | Return current session metadata for frontend restore |
+| `GET` | `/files` | List all previously uploaded file fingerprints |
 | `POST` | `/dev/load-test-file` | Dev only: load `Test2.xlsx` from disk |
 
 ---
@@ -248,7 +260,8 @@ portfolio/
 │       ├── Screen3PortfolioBuilder.tsx
 │       ├── Screen4PortfolioSummary.tsx
 │       ├── Screen4Analysis.tsx
-│       └── Screen5Improvements.tsx
+│       ├── Screen5Improvements.tsx
+│       └── ScreenFrameworkConfig.tsx
 ├── runtime.txt              # Python version for Render
 ├── README.md                # This file
 └── CALCULATIONS.md          # Mathematical methodology reference
