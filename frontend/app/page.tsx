@@ -231,47 +231,45 @@ export default function Home() {
           onReset={handleReset}
         />
 
-        {step <= 4 && (
-          <div className="bg-[#f0f4f8] rounded-xl p-6 -mx-2 text-slate-800">
-            {step === 1 && <Screen1Upload onContinue={handleUpload} />}
+        <div className="bg-[#f0f4f8] rounded-xl p-6 -mx-2 text-slate-800">
+          {step === 1 && <Screen1Upload onContinue={handleUpload} />}
 
-            {step === 2 && (
-              <Screen2ClassifyNotes
-                noteIds={noteIds}
-                noteSuggestions={noteSuggestions}
-                onContinue={handleClassified}
-              />
-            )}
+          {step === 2 && (
+            <Screen2ClassifyNotes
+              noteIds={noteIds}
+              noteSuggestions={noteSuggestions}
+              onContinue={handleClassified}
+            />
+          )}
 
-            {step === 3 && (
-              <Screen3PortfolioBuilder
-                assetCols={assetCols}
-                noteIds={noteIds}
-                noteMeta={noteMeta}
-                onContinue={handlePortfolioBuilt}
-              />
-            )}
+          {step === 3 && (
+            <Screen3PortfolioBuilder
+              assetCols={assetCols}
+              noteIds={noteIds}
+              noteMeta={noteMeta}
+              onContinue={handlePortfolioBuilt}
+            />
+          )}
 
-            {step === 4 && (
-              <Screen4PortfolioSummary onContinue={() => advanceTo(5)} />
-            )}
-          </div>
-        )}
+          {step === 4 && (
+            <Screen4PortfolioSummary onContinue={() => advanceTo(5)} />
+          )}
 
-        {step === 5 && (
-          <Screen4Analysis
-            portfolioNames={portNames}
-            initialFramework={framework}
-            precalcData={precalcData}
-            precalcLoading={precalcLoading}
-            frameworkConfig={frameworkConfig}
-            onContinue={handleFrameworkDone}
-          />
-        )}
+          {step === 5 && (
+            <Screen4Analysis
+              portfolioNames={portNames}
+              initialFramework={framework}
+              precalcData={precalcData}
+              precalcLoading={precalcLoading}
+              frameworkConfig={frameworkConfig}
+              onContinue={handleFrameworkDone}
+            />
+          )}
 
-        {step === 6 && (
-          <Screen5Improvements framework={framework} />
-        )}
+          {step === 6 && (
+            <Screen5Improvements framework={framework} />
+          )}
+        </div>
       </main>
 
       {/* Framework config modal */}
