@@ -186,9 +186,9 @@ _DEFAULT_TYPES: dict[str, list[str]] = {
 }
 # Min protection % tiered by risk × outlook (same for all 3 goals within each combo)
 _DEFAULT_MIN_PROT: dict[str, dict[str, float]] = {
-    "Conservative": {"Bullish": 25.0, "Neutral": 30.0, "Bearish": 35.0},
-    "Moderate":     {"Bullish": 20.0, "Neutral": 25.0, "Bearish": 30.0},
-    "Aggressive":   {"Bullish": 15.0, "Neutral": 20.0, "Bearish": 25.0},
+    "Conservative": {"Bullish": 0.0, "Neutral": 0.0, "Bearish": 0.0},
+    "Moderate":     {"Bullish": 0.0, "Neutral": 0.0, "Bearish": 0.0},
+    "Aggressive":   {"Bullish": 0.0, "Neutral": 0.0, "Bearish": 0.0},
 }
 
 

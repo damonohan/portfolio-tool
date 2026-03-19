@@ -135,7 +135,7 @@ export default function Screen4Analysis({
     label, options, value, onChange,
   }: { label: string; options: readonly string[]; value: string; onChange: (v: string) => void }) => (
     <div>
-      <p className="text-sm font-semibold text-slate-600 mb-2">{label}</p>
+      <p className="text-sm font-semibold text-slate-300 mb-2">{label}</p>
       <div className="flex gap-2 flex-wrap">
         {options.map((o) => (
           <button
@@ -143,8 +143,8 @@ export default function Screen4Analysis({
             onClick={() => onChange(o)}
             className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
               value === o
-                ? "bg-blue-700 text-white border-blue-700"
-                : "bg-white text-slate-700 border-slate-300 hover:border-blue-400"
+                ? "bg-teal-600 text-white border-teal-600"
+                : "bg-[#0f1629] text-slate-300 border-slate-600 hover:border-teal-500"
             }`}
           >
             {o}
@@ -159,8 +159,8 @@ export default function Screen4Analysis({
   }) => {
     const good = delta === undefined ? undefined : (lowerBetter ? delta <= 0 : delta >= 0);
     return (
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-center">
-        <div className="text-2xl font-bold text-blue-700">{value}</div>
+      <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+        <div className="text-2xl font-bold text-slate-800">{value}</div>
         <div className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">{label}</div>
         {delta !== undefined && (
           <div className={`text-xs mt-0.5 font-semibold ${good ? "text-green-600" : "text-red-500"}`}>
@@ -184,10 +184,10 @@ export default function Screen4Analysis({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div className="bg-[#1a2035] rounded-xl border border-slate-700 p-6 space-y-5">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">Framework Selection</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-xl font-bold text-slate-100 mb-1">Framework Selection</h2>
+          <p className="text-sm text-slate-400">
             Results update instantly as you change selections below.
           </p>
         </div>
@@ -198,11 +198,11 @@ export default function Screen4Analysis({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Simulation Horizon</p>
+            <p className="text-sm font-semibold text-slate-300 mb-2">Simulation Horizon</p>
             <select
               value={horizon}
               onChange={(e) => setHorizon(Number(e.target.value))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-slate-600 rounded-lg px-3 py-2 text-sm bg-[#0f1629] text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               {HORIZONS.map((h) => (
                 <option key={h} value={h}>{h} {h === 1 ? "Year" : "Years"}</option>
@@ -211,11 +211,11 @@ export default function Screen4Analysis({
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Starting Portfolio</p>
+            <p className="text-sm font-semibold text-slate-300 mb-2">Starting Portfolio</p>
             <select
               value={portName}
               onChange={(e) => setPortName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-slate-600 rounded-lg px-3 py-2 text-sm bg-[#0f1629] text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               {portfolioNames.map((p) => (
                 <option key={p} value={p}>{p}</option>
@@ -227,15 +227,15 @@ export default function Screen4Analysis({
 
       {/* Loading spinner */}
       {precalcLoading && (
-        <div className="flex items-center justify-center py-10 text-slate-500 gap-3">
-          <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full" />
+        <div className="flex items-center justify-center py-10 text-slate-400 gap-3">
+          <div className="animate-spin w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full" />
           Loading pre-computed data…
         </div>
       )}
 
       {/* No data for this portfolio */}
       {noData && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4 text-sm">
+        <div className="bg-amber-900/30 border border-amber-700 text-amber-300 rounded-xl px-5 py-4 text-sm">
           No pre-calc data available for <strong>{portName}</strong>.
           Go back to Step 3 and re-save the portfolio to trigger pre-calculation.
         </div>
@@ -243,51 +243,51 @@ export default function Screen4Analysis({
 
       {/* Base metrics */}
       {baseMetrics && !precalcLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
-          <h3 className="text-lg font-bold text-slate-800">Base Portfolio — {horizon}yr Horizon</h3>
+        <div className="bg-[#1a2035] rounded-xl border border-slate-700 p-6 space-y-4">
+          <h3 className="text-lg font-bold text-slate-100">Base Portfolio — {horizon}yr Horizon</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <MetricCard label="Sharpe Ratio"     value={baseMetrics.sharpe.toFixed(4)} />
             <MetricCard label="% Negative"       value={`${baseMetrics.pct_neg.toFixed(2)}%`} />
             <MetricCard label="Shorty"           value={baseMetrics.shorty.toFixed(4)} />
             <MetricCard label="Expected Income"  value={`${baseMetrics.expected_income_pct.toFixed(2)}%`} />
           </div>
-          <div className="flex gap-4 text-sm text-slate-500">
-            <span>Mean return: <strong className="text-slate-800">{(baseMetrics.mean * 100).toFixed(2)}%</strong></span>
-            <span>Std dev: <strong className="text-slate-800">{(baseMetrics.std * 100).toFixed(2)}%</strong></span>
+          <div className="flex gap-4 text-sm text-slate-400">
+            <span>Mean return: <strong className="text-slate-100">{(baseMetrics.mean * 100).toFixed(2)}%</strong></span>
+            <span>Std dev: <strong className="text-slate-100">{(baseMetrics.std * 100).toFixed(2)}%</strong></span>
           </div>
         </div>
       )}
 
       {/* Top-5 results */}
       {baseMetrics && !precalcLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-            <span className="font-semibold text-slate-700">
+        <div className="bg-[#1a2035] rounded-xl border border-slate-700 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-700 bg-[#0f1629] flex items-center justify-between">
+            <span className="font-semibold text-slate-300">
               {ranked.length > 0
                 ? `Top ${ranked.length} Candidate${ranked.length > 1 ? "s" : ""} — ${outlook} / ${goal} / ${risk}`
                 : "No candidates under current framework"}
             </span>
-            <span className="text-xs text-slate-400">Updates instantly</span>
+            <span className="text-xs text-slate-500">Updates instantly</span>
           </div>
 
           {ranked.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-slate-500 text-center">
+            <div className="px-5 py-6 text-sm text-slate-400 text-center">
               No notes pass the current framework filters. Try changing the outlook, goal, or risk tolerance.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Rank</th>
-                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Note ID</th>
-                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-500">Type</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Alloc %</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Sharpe</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New %Neg</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Shorty</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Income Boost</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Score</th>
+                  <tr className="border-b border-slate-700 bg-[#0f1629]">
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-400">Rank</th>
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-400">Note ID</th>
+                    <th className="px-4 py-3 text-left text-xs uppercase font-semibold text-slate-400">Type</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">Alloc %</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">New Sharpe</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">New %Neg</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">New Shorty</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">Income Boost</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-400">Score</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -296,39 +296,39 @@ export default function Screen4Analysis({
                     const pctNegDelta  = r.pct_neg - baseMetrics.pct_neg;
                     const shortyDelta  = r.shorty  - baseMetrics.shorty;
                     return (
-                      <tr key={r.note_id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-blue-700">#{idx + 1}</td>
-                        <td className="px-4 py-3 font-mono font-semibold">{r.note_id}</td>
+                      <tr key={r.note_id} className="border-b border-slate-700/50 hover:bg-[#232b45] transition-colors">
+                        <td className="px-4 py-3 font-bold text-teal-400">#{idx + 1}</td>
+                        <td className="px-4 py-3 font-mono font-semibold text-slate-200">{r.note_id}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${NOTE_TYPE_COLORS[r.note_type] ?? "bg-slate-100 text-slate-700"}`}>
                             {r.note_type}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold">{Math.round(r.alloc_pct * 100)}%</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right font-semibold text-slate-300">{Math.round(r.alloc_pct * 100)}%</td>
+                        <td className="px-4 py-3 text-right text-slate-300">
                           {r.sharpe.toFixed(4)}
-                          <span className={`ml-1 text-xs ${sharpeDelta >= 0 ? "text-green-600" : "text-red-500"}`}>
+                          <span className={`ml-1 text-xs ${sharpeDelta >= 0 ? "text-green-500" : "text-red-500"}`}>
                             ({sharpeDelta >= 0 ? "+" : ""}{sharpeDelta.toFixed(4)})
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right text-slate-300">
                           {r.pct_neg.toFixed(2)}%
-                          <span className={`ml-1 text-xs ${pctNegDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
+                          <span className={`ml-1 text-xs ${pctNegDelta <= 0 ? "text-green-500" : "text-red-500"}`}>
                             ({pctNegDelta >= 0 ? "+" : ""}{pctNegDelta.toFixed(4)})
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right text-slate-300">
                           {r.shorty.toFixed(4)}
-                          <span className={`ml-1 text-xs ${shortyDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
+                          <span className={`ml-1 text-xs ${shortyDelta <= 0 ? "text-green-500" : "text-red-500"}`}>
                             ({shortyDelta >= 0 ? "+" : ""}{shortyDelta.toFixed(4)})
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           {r.income_boost > 0
-                            ? <span className="text-green-600 font-semibold">+{(r.income_boost * 100).toFixed(4)}%</span>
-                            : <span className="text-slate-400">—</span>}
+                            ? <span className="text-green-500 font-semibold">+{(r.income_boost * 100).toFixed(4)}%</span>
+                            : <span className="text-slate-500">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">{r.score.toFixed(4)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-slate-400">{r.score.toFixed(4)}</td>
                       </tr>
                     );
                   })}
@@ -344,7 +344,7 @@ export default function Screen4Analysis({
         <div className="flex justify-end">
           <button
             onClick={() => onContinue({ outlook, risk_tolerance: risk, goal, portfolio_name: portName, horizon })}
-            className="bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors"
+            className="bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors"
           >
             View Histograms →
           </button>

@@ -191,22 +191,22 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: "#f0f4f8" }}>
-      <header className="bg-white border-b border-slate-200 shadow-sm">
+    <div className="min-h-screen">
+      <header className="bg-[#0d1117] border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="text-2xl">📊</div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">
+              <h1 className="text-lg font-bold text-slate-100 leading-tight">
                 Portfolio Note Allocation Tool
               </h1>
-              <p className="text-xs text-slate-500">Monte Carlo–based improvement analysis</p>
+              <p className="text-xs text-slate-400">Monte Carlo–based improvement analysis</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {restoreMsg && (
-              <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-2 rounded-lg">
+              <div className="flex items-center gap-2 bg-teal-900/50 border border-teal-700 text-teal-300 text-sm px-4 py-2 rounded-lg">
                 <span>✓</span> {restoreMsg}
               </div>
             )}
@@ -214,7 +214,7 @@ export default function Home() {
             <button
               onClick={() => setShowConfigModal(true)}
               title="Framework Configuration"
-              className="flex items-center gap-1.5 border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
             >
               <span className="text-base">⚙</span>
               <span className="hidden sm:inline">Framework</span>
@@ -231,27 +231,31 @@ export default function Home() {
           onReset={handleReset}
         />
 
-        {step === 1 && <Screen1Upload onContinue={handleUpload} />}
+        {step <= 4 && (
+          <div className="bg-[#f0f4f8] rounded-xl p-6 -mx-2 text-slate-800">
+            {step === 1 && <Screen1Upload onContinue={handleUpload} />}
 
-        {step === 2 && (
-          <Screen2ClassifyNotes
-            noteIds={noteIds}
-            noteSuggestions={noteSuggestions}
-            onContinue={handleClassified}
-          />
-        )}
+            {step === 2 && (
+              <Screen2ClassifyNotes
+                noteIds={noteIds}
+                noteSuggestions={noteSuggestions}
+                onContinue={handleClassified}
+              />
+            )}
 
-        {step === 3 && (
-          <Screen3PortfolioBuilder
-            assetCols={assetCols}
-            noteIds={noteIds}
-            noteMeta={noteMeta}
-            onContinue={handlePortfolioBuilt}
-          />
-        )}
+            {step === 3 && (
+              <Screen3PortfolioBuilder
+                assetCols={assetCols}
+                noteIds={noteIds}
+                noteMeta={noteMeta}
+                onContinue={handlePortfolioBuilt}
+              />
+            )}
 
-        {step === 4 && (
-          <Screen4PortfolioSummary onContinue={() => advanceTo(5)} />
+            {step === 4 && (
+              <Screen4PortfolioSummary onContinue={() => advanceTo(5)} />
+            )}
+          </div>
         )}
 
         {step === 5 && (
