@@ -40,11 +40,17 @@ def portfolio_returns(cum_df: pd.DataFrame, weights: dict[str, float]) -> np.nda
     return cum_df[cols].values @ w          # shape: (n_sims,)
 
 
-def compute_metrics(final_returns: np.ndarray, risk_free_rate: float) -> dict[str, float]:
-    """Compute all required metrics from an array of final cumulative returns."""
+def compute_metrics(final_returns: np.ndarray, risk_free_rate: float, horizon: int = 1) -> dict[str, float]:
+    """Compute all required metrics from an array of final cumulative returns.
+
+    Mean, std, and Sharpe are annualized so they are comparable across horizons.
+    pct_neg and shorty use the raw cumulative returns (total-outcome measures).
+    """
     rfr = risk_free_rate / 100.0
-    mean = float(np.mean(final_returns))
-    std  = float(np.std(final_returns, ddof=1))
+    # Annualize: convert cumulative returns to equivalent annual returns
+    ann_returns = (1 + final_returns) ** (1.0 / horizon) - 1
+    mean = float(np.mean(ann_returns))
+    std  = float(np.std(ann_returns, ddof=1))
     sharpe = (mean - rfr) / std if std > 0 else 0.0
     pct_neg = float(np.sum(final_returns < 0) / len(final_returns) * 100)
     shorty  = float(stats.kurtosis(final_returns, fisher=True))   # excess kurtosis
@@ -217,7 +223,7 @@ def find_improvements(
             note_ret  = cum_df[note_col].values * note_portion
             port_ret  = asset_ret + note_ret
 
-            m = compute_metrics(port_ret, risk_free)
+            m = compute_metrics(port_ret, risk_free, horizon)
 
             # Income %
             new_income_pct = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in asset_cols)

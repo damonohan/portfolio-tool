@@ -265,7 +265,7 @@ def _run_precalc(portfolio_name: str) -> None:
     # Base metrics for 3 horizons
     for h in (1, 2, 3):
         base_ret = portfolio_returns(cum[str(h)], weights)
-        m        = compute_metrics(base_ret, risk_free)
+        m        = compute_metrics(base_ret, risk_free, h)
         inc_pct  = expected_income(weights, asset_yields)
         result["_base"][str(h)] = {
             "sharpe":               round(m["sharpe"],  4),
@@ -331,7 +331,7 @@ def _run_precalc(portfolio_name: str) -> None:
                     note_ret  = cd[note_col].values * alloc_r
                     port_ret  = asset_ret + note_ret
 
-                    m = compute_metrics(port_ret, risk_free)
+                    m = compute_metrics(port_ret, risk_free, h)
 
                     # Income boost (in fraction units to match rank_score)
                     new_income = sum(new_weights.get(a, 0.0) * asset_yields_frac.get(a, 0.0) for a in asset_cols)
@@ -1234,7 +1234,7 @@ def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
 
         cum_df    = compute_cumulative_returns(df, asset_cols, horizon)
         final_ret = portfolio_returns(cum_df, weights)
-        metrics   = compute_metrics(final_ret, risk_free)
+        metrics   = compute_metrics(final_ret, risk_free, horizon)
         inc_pct   = expected_income(weights, SESSION["asset_yields"])
 
         # Build allocation rows sorted descending by weight
@@ -1295,9 +1295,9 @@ def portfolio_candidates(risk_free: float = 2.0):
     # Pre-compute cumulative returns for all 3 horizons at once
     cum = {h: compute_cumulative_returns(df, all_cols, h) for h in (1, 2, 3)}
 
-    def _m(cum_df, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols):
+    def _m(cum_df, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon=1):
         """Compute metrics dict for one horizon."""
-        m          = compute_metrics(ret_vec, risk_free)
+        m          = compute_metrics(ret_vec, risk_free, horizon)
         new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in a_cols)
         if note_type == "Income":
             new_income += alloc * note_yield_frac * 100
@@ -1323,7 +1323,7 @@ def portfolio_candidates(risk_free: float = 2.0):
         base_h: dict[str, dict] = {}
         for h in (1, 2, 3):
             base_ret = portfolio_returns(cum[h], weights)
-            bm       = compute_metrics(base_ret, port_rfr)
+            bm       = compute_metrics(base_ret, port_rfr, h)
             base_h[f"h{h}"] = {
                 "sharpe":               round(bm["sharpe"],  4),
                 "pct_neg":              round(bm["pct_neg"], 4),
@@ -1363,7 +1363,7 @@ def portfolio_candidates(risk_free: float = 2.0):
                     cd   = cum[h]
                     ret  = cd[asset_cols].values @ nw_vec + cd[note_col].values * alloc
                     cand[f"h{h}"] = _m(cd, ret, port_rfr, note_type, note_yield,
-                                       alloc, new_weights, asset_cols)
+                                       alloc, new_weights, asset_cols, h)
                 candidates.append(cand)
 
             note_rows.append({
