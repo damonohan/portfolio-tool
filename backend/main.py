@@ -26,11 +26,11 @@ from calculations import (
     ALL_BUCKETS,
     NOTE_TYPES_GROWTH,
     NOTE_TYPES_INCOME,
-    compute_cumulative_returns,
+    # compute_cumulative_returns no longer used — replaced by _cum_returns (numpy-native)
     compute_metrics,
     expected_income,
     find_improvements,
-    portfolio_returns,
+    # portfolio_returns no longer used — replaced by direct numpy @ operator
     rank_score,
 )
 
@@ -121,7 +121,11 @@ def _db_load_framework_config() -> None:
 # ── In-memory session store ───────────────────────────────────────────────────
 
 SESSION: dict[str, Any] = {
-    "df":                None,
+    "df":                None,   # kept only during upload for preview; set to None after
+    "sim_data":          None,   # numpy float32 array: shape (n_sims, n_periods, n_cols)
+    "sim_col_idx":       {},     # {col_name: int} — maps column names to sim_data axis-2 indices
+    "n_sims":            0,
+    "n_periods":         0,
     "asset_cols":        [],
     "note_ids":          [],
     "note_col_map":      {},
@@ -142,6 +146,10 @@ def reset_session() -> None:
     global SESSION
     SESSION = {
         "df":                None,
+        "sim_data":          None,
+        "sim_col_idx":       {},
+        "n_sims":            0,
+        "n_periods":         0,
         "asset_cols":        [],
         "note_ids":          [],
         "note_col_map":      {},
@@ -166,10 +174,29 @@ def _note_col_to_id(col: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _require_data() -> np.ndarray:
+    """Return the sim_data numpy array, raising 400 if no file uploaded."""
+    if SESSION["sim_data"] is None:
+        raise HTTPException(400, "No file uploaded yet.")
+    return SESSION["sim_data"]
+
+
 def _require_df() -> pd.DataFrame:
+    """Legacy helper — kept for upload/fingerprint only."""
     if SESSION["df"] is None:
         raise HTTPException(400, "No file uploaded yet.")
     return SESSION["df"]
+
+
+def _cum_returns(columns: list[str], horizon: int) -> np.ndarray:
+    """Compute cumulative returns from the numpy sim_data array.
+    Returns shape (n_sims, len(columns)) as float64 for precision."""
+    raw = SESSION["sim_data"]       # (n_sims, n_periods, n_all_cols), float32
+    col_idx = SESSION["sim_col_idx"]
+    indices = [col_idx[c] for c in columns]
+    # Slice: (n_sims, horizon, len(columns))
+    sub = raw[:, :horizon, :][:, :, indices].astype(np.float64)
+    return np.prod(1 + sub, axis=1) - 1  # (n_sims, len(columns))
 
 
 # ── Framework config helpers ──────────────────────────────────────────────────
@@ -227,8 +254,7 @@ def _run_precalc(portfolio_name: str) -> None:
     Stores results in SESSION["precalc"][portfolio_name].
     No port_returns stored — only metrics (compact for DB persistence).
     """
-    df = SESSION["df"]
-    if df is None:
+    if SESSION["sim_data"] is None:
         return
     port = SESSION["portfolios"].get(portfolio_name)
     if not port:
@@ -248,6 +274,7 @@ def _run_precalc(portfolio_name: str) -> None:
 
     all_note_cols = [note_col_map[nid] for nid in note_ids if nid in note_col_map]
     all_cols      = asset_cols + all_note_cols
+    col_idx       = SESSION["sim_col_idx"]
 
     result: dict[str, Any] = {
         "_base":   {},
@@ -262,7 +289,7 @@ def _run_precalc(portfolio_name: str) -> None:
     # Framework config for bucket selection per outlook
     fw_cfg      = SESSION.get("framework_config") or _default_framework_config()
     out_buckets = fw_cfg.get("outlook_buckets", _default_framework_config()["outlook_buckets"])
-    global_max  = 0.40   # compute up to 40%; per-cell cap applied client-side / at ranking time
+    global_max  = 0.40
 
     # Pre-compute outlook bucket info (invariant across horizons)
     outlook_info: dict[str, tuple[list[str], float]] = {}
@@ -272,13 +299,20 @@ def _run_precalc(portfolio_name: str) -> None:
         bucket_total  = sum(weights[a] for a in bucket_assets)
         outlook_info[outlook] = (bucket_assets, bucket_total)
 
-    # Process ONE horizon at a time to limit peak memory (~36MB per horizon instead of ~108MB)
+    # Pre-compute column indices for assets and notes
+    asset_indices = [col_idx[c] for c in asset_cols]
+    w_arr_base    = np.array([weights[a] for a in asset_cols], dtype=np.float64)
+
+    # Process ONE horizon at a time — pure numpy, no pandas intermediates
+    raw = SESSION["sim_data"]  # (n_sims, n_periods, n_all_cols), float32
     for h in (1, 2, 3):
         hs = str(h)
-        cd = compute_cumulative_returns(df, all_cols, h)
+        # Cumulative returns for all columns at this horizon
+        wealth = np.prod(1 + raw[:, :h, :].astype(np.float64), axis=1) - 1  # (n_sims, n_all_cols)
+        asset_arr = wealth[:, asset_indices]  # (n_sims, n_assets)
 
-        # Base metrics for this horizon
-        base_ret = portfolio_returns(cd, weights)
+        # Base metrics
+        base_ret = asset_arr @ w_arr_base
         m        = compute_metrics(base_ret, risk_free, h)
         inc_pct  = expected_income(weights, asset_yields)
         result["_base"][hs] = {
@@ -289,10 +323,6 @@ def _run_precalc(portfolio_name: str) -> None:
             "std":                  round(m["std"],     4),
             "expected_income_pct":  round(inc_pct,      4),
         }
-
-        # Pre-extract numpy array for asset columns (avoids repeated DataFrame indexing)
-        asset_arr = cd[asset_cols].values  # shape (n_sims, n_assets)
-        asset_weight_order = [weights[a] for a in asset_cols]
 
         # Candidates for all 3 outlooks at this horizon
         for outlook in ("Bullish", "Bearish", "Neutral"):
@@ -308,13 +338,13 @@ def _run_precalc(portfolio_name: str) -> None:
 
             for note_id in note_ids:
                 note_col = note_col_map.get(note_id)
-                if note_col is None:
+                if note_col is None or note_col not in col_idx:
                     continue
                 meta      = note_meta.get(note_id, {})
                 ext       = SESSION.get("note_suggestions", {}).get(note_id, {})
                 note_type = meta.get("type", "")
                 note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
-                note_arr  = cd[note_col].values  # extract once per note
+                note_arr  = wealth[:, col_idx[note_col]]
 
                 step  = 0.05
                 alloc = step
@@ -324,7 +354,6 @@ def _run_precalc(portfolio_name: str) -> None:
                         alloc += step
                         continue
 
-                    # Pro-rata reduce bucket assets
                     new_weights = dict(weights)
                     for a in bucket_assets:
                         new_weights[a] = weights[a] - (weights[a] / bucket_total) * alloc_r
@@ -334,7 +363,6 @@ def _run_precalc(portfolio_name: str) -> None:
 
                     m = compute_metrics(port_ret, risk_free, h)
 
-                    # Income boost
                     new_income = sum(new_weights.get(a, 0.0) * asset_yields_frac.get(a, 0.0) for a in asset_cols)
                     if note_type in NOTE_TYPES_INCOME:
                         new_income += alloc_r * note_yield_frac
@@ -366,7 +394,7 @@ def _run_precalc(portfolio_name: str) -> None:
 
             result[outlook][hs] = candidates
 
-        del cd  # free cumulative returns before next horizon
+        del wealth, asset_arr  # free before next horizon
 
     SESSION["precalc"][portfolio_name] = result
 
@@ -517,7 +545,19 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
     saved = db.get(fp, {})
     restored_portfolios = 0
 
-    SESSION["df"]                = df
+    # Extract numpy array from DataFrame for memory-efficient storage
+    all_data_cols = asset_cols + list(note_col_map.values())
+    sorted_df  = df.sort_values(["Simulation", "Period"])
+    n_sims     = int(sorted_df["Simulation"].nunique())
+    n_periods  = int(sorted_df["Period"].nunique())
+    sim_data   = sorted_df[all_data_cols].values.reshape(n_sims, n_periods, len(all_data_cols)).astype(np.float32)
+    sim_col_idx = {c: i for i, c in enumerate(all_data_cols)}
+
+    SESSION["sim_data"]          = sim_data
+    SESSION["sim_col_idx"]       = sim_col_idx
+    SESSION["n_sims"]            = n_sims
+    SESSION["n_periods"]         = n_periods
+    SESSION["df"]                = None  # DataFrame no longer needed — saves ~34MB+
     SESSION["asset_cols"]        = asset_cols
     SESSION["note_ids"]          = note_ids
     SESSION["note_col_map"]      = note_col_map
@@ -638,7 +678,7 @@ VALID_TYPES = {"Income", "Growth", "Digital", "Absolute", "MLCD", "PPN"}
 
 @app.post("/classify-notes")
 def classify_notes(req: ClassifyRequest):
-    _require_df()
+    _require_data()
     meta: dict[str, dict] = {}
     for c in req.classifications:
         if c.note_type not in VALID_TYPES:
@@ -677,7 +717,7 @@ VALID_BUCKETS = {"Equity", "Fixed Income", "Alternative", "Cash"}
 
 @app.post("/asset-metadata")
 def set_asset_metadata(req: AssetMetaRequest):
-    _require_df()
+    _require_data()
     yields:  dict[str, float] = {}
     buckets: dict[str, str]   = {}
     for a in req.assets:
@@ -707,7 +747,7 @@ class PortfolioSave(BaseModel):
 
 @app.post("/portfolio/save")
 def save_portfolio(req: PortfolioSave):
-    _require_df()
+    _require_data()
     if not SESSION["asset_yields"] or not SESSION["asset_buckets"]:
         raise HTTPException(400, "Save asset yields & buckets before saving a portfolio.")
     if not req.name.strip():
@@ -765,7 +805,7 @@ def get_portfolio_precalc():
     """Return all pre-computed candidate data for all portfolios.
     Returns whatever is cached; missing portfolios are NOT auto-computed
     (use POST /precalc/{name} to trigger individually)."""
-    _require_df()
+    _require_data()
     result = {}
     missing = []
     for name in SESSION["portfolios"]:
@@ -780,7 +820,7 @@ def get_portfolio_precalc():
 @app.post("/precalc/{portfolio_name}")
 def trigger_precalc(portfolio_name: str):
     """Manually trigger pre-calculation for a specific portfolio (e.g., after session restore)."""
-    _require_df()
+    _require_data()
     if portfolio_name not in SESSION["portfolios"]:
         raise HTTPException(404, "Portfolio not found.")
     if not SESSION["asset_buckets"]:
@@ -816,7 +856,7 @@ def save_framework_config(req: FrameworkConfigRequest):
     }
     _db_save_framework_config()
     # Re-run precalc for all saved portfolios since eligibility rules changed
-    if SESSION["df"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
+    if SESSION["sim_data"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
         for name in list(SESSION["portfolios"].keys()):
             _run_precalc(name)
         _db_save_session(SESSION["fingerprint"])
@@ -828,7 +868,7 @@ def reset_framework_config():
     """Reset framework config to built-in defaults and re-run precalc."""
     SESSION["framework_config"] = _default_framework_config()
     _db_save_framework_config()
-    if SESSION["df"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
+    if SESSION["sim_data"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
         for name in list(SESSION["portfolios"].keys()):
             _run_precalc(name)
         _db_save_session(SESSION["fingerprint"])
@@ -847,7 +887,7 @@ class FindImprovementsRequest(BaseModel):
 
 @app.post("/find-improvements")
 def find_improvements_endpoint(req: FindImprovementsRequest):
-    df = _require_df()
+    _require_data()
     if req.portfolio_name not in SESSION["precalc"]:
         raise HTTPException(400, "No pre-calc data for this portfolio. Save the portfolio first.")
     if req.horizon not in (1, 2, 3):
@@ -927,16 +967,20 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
 
     all_note_cols = [note_col_map[nid] for nid in SESSION["note_ids"] if nid in note_col_map]
     all_cols      = asset_cols + all_note_cols
-    cum_df        = compute_cumulative_returns(df, all_cols, req.horizon)
+    col_idx       = SESSION["sim_col_idx"]
 
-    # Base returns for histogram
-    base_ret = portfolio_returns(cum_df, weights)
+    # Compute cumulative returns for this horizon using numpy
+    wealth     = _cum_returns(all_cols, req.horizon)
+    asset_indices = [col_idx[c] for c in asset_cols]
+    asset_arr  = wealth[:, :len(asset_cols)]  # columns ordered same as all_cols
+    w_arr      = np.array([weights[a] for a in asset_cols])
+    base_ret   = asset_arr @ w_arr
 
     results: list[dict] = []
     for c in top5:
         note_id   = c["note_id"]
         note_col  = note_col_map.get(note_id)
-        if note_col is None:
+        if note_col is None or note_col not in col_idx:
             continue
         alloc_r   = c["alloc_pct"]  # fraction
 
@@ -947,9 +991,9 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
         else:
             new_weights = dict(weights)
 
-        new_asset_w = {a: w for a, w in new_weights.items() if a in asset_cols}
-        asset_ret   = cum_df[asset_cols].values @ np.array([new_asset_w[a] for a in asset_cols])
-        port_ret    = asset_ret + cum_df[note_col].values * alloc_r
+        new_w_arr   = np.array([new_weights[a] for a in asset_cols])
+        note_ci     = all_cols.index(note_col)
+        port_ret    = asset_arr @ new_w_arr + wealth[:, note_ci] * alloc_r
 
         m           = c["metrics"]
         income_boost = m["income_boost"]
@@ -1226,7 +1270,7 @@ async def dev_load_test_file(path: str = "../Test2.xlsx"):
 @app.get("/portfolio-summary")
 def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
     """Return allocation breakdown + base metrics for every saved portfolio."""
-    df = _require_df()
+    _require_data()
     if not SESSION["portfolios"]:
         raise HTTPException(400, "No portfolios saved yet.")
     if not SESSION["asset_buckets"]:
@@ -1239,8 +1283,9 @@ def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
         weights    = port["weights"]
         asset_cols = list(weights.keys())
 
-        cum_df    = compute_cumulative_returns(df, asset_cols, horizon)
-        final_ret = portfolio_returns(cum_df, weights)
+        cum_arr   = _cum_returns(asset_cols, horizon)
+        w_arr     = np.array([weights[a] for a in asset_cols])
+        final_ret = cum_arr @ w_arr
         metrics   = compute_metrics(final_ret, risk_free, horizon)
         inc_pct   = expected_income(weights, SESSION["asset_yields"])
 
@@ -1283,7 +1328,7 @@ def portfolio_candidates(risk_free: float = 2.0):
     at ALL THREE horizons (1yr, 2yr, 3yr) in a single call.
     Each candidate also includes the complete portfolio weight breakdown.
     """
-    df = _require_df()
+    _require_data()
     if not SESSION["portfolios"]:
         raise HTTPException(400, "No portfolios saved yet.")
     if not SESSION["asset_buckets"]:
@@ -1299,10 +1344,10 @@ def portfolio_candidates(risk_free: float = 2.0):
     note_cols = list(note_col_map.values())
     all_cols  = all_asset_cols + note_cols
 
-    # Pre-compute cumulative returns for all 3 horizons at once
-    cum = {h: compute_cumulative_returns(df, all_cols, h) for h in (1, 2, 3)}
+    # Pre-compute cumulative returns for all 3 horizons using numpy
+    cum = {h: _cum_returns(all_cols, h) for h in (1, 2, 3)}
 
-    def _m(cum_df, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon=1):
+    def _m(_unused, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon=1):
         """Compute metrics dict for one horizon."""
         m          = compute_metrics(ret_vec, risk_free, horizon)
         new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in a_cols)
@@ -1325,12 +1370,17 @@ def portfolio_candidates(risk_free: float = 2.0):
         asset_cols = list(weights.keys())
         port_rfr   = port.get("risk_free", risk_free)  # use portfolio's own RFR
 
+        # Build column index maps for this portfolio's assets
+        asset_ci = [all_cols.index(a) for a in asset_cols]
+        w_arr    = np.array([weights[a] for a in asset_cols])
+
         # Base metrics for all 3 horizons
         base_income = expected_income(weights, asset_yields)
         base_h: dict[str, dict] = {}
         for h in (1, 2, 3):
-            base_ret = portfolio_returns(cum[h], weights)
-            bm       = compute_metrics(base_ret, port_rfr, h)
+            asset_data = cum[h][:, asset_ci]
+            base_ret   = asset_data @ w_arr
+            bm         = compute_metrics(base_ret, port_rfr, h)
             base_h[f"h{h}"] = {
                 "sharpe":               round(bm["sharpe"],  4),
                 "pct_neg":              round(bm["pct_neg"], 4),
@@ -1348,10 +1398,11 @@ def portfolio_candidates(risk_free: float = 2.0):
         note_rows = []
         for note_id, meta in note_meta.items():
             note_col   = note_col_map.get(note_id)
-            if note_col is None:
+            if note_col is None or note_col not in SESSION["sim_col_idx"]:
                 continue
             note_type  = meta.get("type", "")
             note_yield = meta.get("yield_pct", 0.0) / 100.0
+            note_ci    = all_cols.index(note_col)
 
             candidates = []
             for alloc in alloc_steps:
@@ -1367,9 +1418,9 @@ def portfolio_candidates(risk_free: float = 2.0):
                     "weights":      full_weights,
                 }
                 for h in (1, 2, 3):
-                    cd   = cum[h]
-                    ret  = cd[asset_cols].values @ nw_vec + cd[note_col].values * alloc
-                    cand[f"h{h}"] = _m(cd, ret, port_rfr, note_type, note_yield,
+                    cd_arr = cum[h]
+                    ret  = cd_arr[:, asset_ci] @ nw_vec + cd_arr[:, note_ci] * alloc
+                    cand[f"h{h}"] = _m(None, ret, port_rfr, note_type, note_yield,
                                        alloc, new_weights, asset_cols, h)
                 candidates.append(cand)
 
@@ -1395,7 +1446,7 @@ def portfolio_candidates(risk_free: float = 2.0):
 @app.get("/session-state")
 def session_state():
     return {
-        "has_file":          SESSION["df"] is not None,
+        "has_file":          SESSION["sim_data"] is not None,
         "fingerprint":       SESSION["fingerprint"],
         "asset_cols":        SESSION["asset_cols"],
         "note_ids":          SESSION["note_ids"],
