@@ -689,12 +689,10 @@ def set_asset_metadata(req: AssetMetaRequest):
         raise HTTPException(400, "All assets must have metadata.")
     SESSION["asset_yields"]  = yields
     SESSION["asset_buckets"] = buckets
-    # Re-run precalc for all saved portfolios since bucket/yield metadata changed
-    if SESSION["portfolios"] and SESSION["note_meta"]:
-        for name in list(SESSION["portfolios"].keys()):
-            _run_precalc(name)
+    # Clear stale precalc — will be regenerated on next portfolio save or precalc trigger
+    SESSION["precalc"] = {}
     _db_save_session(SESSION["fingerprint"])
-    return {"ok": True}
+    return {"ok": True, "precalc_invalidated": bool(SESSION["portfolios"])}
 
 
 # ── Portfolio management ──────────────────────────────────────────────────────
@@ -762,14 +760,19 @@ def list_portfolios():
 
 @app.get("/portfolio-precalc")
 def get_portfolio_precalc():
-    """Return all pre-computed candidate data for all portfolios."""
+    """Return all pre-computed candidate data for all portfolios.
+    Returns whatever is cached; missing portfolios are NOT auto-computed
+    (use POST /precalc/{name} to trigger individually)."""
     _require_df()
-    # Attach risk_free per portfolio so client can display it
     result = {}
-    for name, data in SESSION["precalc"].items():
-        port = SESSION["portfolios"].get(name, {})
-        result[name] = {**data, "risk_free": port.get("risk_free", 2.0)}
-    return {"portfolios": result}
+    missing = []
+    for name in SESSION["portfolios"]:
+        if name in SESSION["precalc"]:
+            port = SESSION["portfolios"].get(name, {})
+            result[name] = {**SESSION["precalc"][name], "risk_free": port.get("risk_free", 2.0)}
+        else:
+            missing.append(name)
+    return {"portfolios": result, "missing": missing}
 
 
 @app.post("/precalc/{portfolio_name}")

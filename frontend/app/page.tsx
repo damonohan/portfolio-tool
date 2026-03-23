@@ -56,6 +56,19 @@ export default function Home() {
     try {
       const data = await api.portfolioPrecalc();
       setPrecalcData(data.portfolios);
+      // Trigger precalc for any portfolios not yet computed (one at a time to avoid timeout)
+      if (data.missing && data.missing.length > 0) {
+        for (const name of data.missing) {
+          try {
+            await api.triggerPrecalc(name);
+          } catch {
+            // non-fatal — portfolio may lack metadata
+          }
+        }
+        // Re-fetch with newly computed data
+        const updated = await api.portfolioPrecalc();
+        setPrecalcData(updated.portfolios);
+      }
     } catch {
       // non-fatal
     } finally {

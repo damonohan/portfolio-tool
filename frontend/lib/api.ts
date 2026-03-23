@@ -126,7 +126,7 @@ export const api = {
     }>(`/portfolio-candidates?risk_free=${riskFree}`),
 
   portfolioPrecalc: () =>
-    req<{ portfolios: Record<string, PortfolioPrecalc> }>("/portfolio-precalc"),
+    req<{ portfolios: Record<string, PortfolioPrecalc>; missing?: string[] }>("/portfolio-precalc"),
 
   triggerPrecalc: (portfolioName: string) =>
     req<{ ok: boolean; portfolio_name: string }>(
