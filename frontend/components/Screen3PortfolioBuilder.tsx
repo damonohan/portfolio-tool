@@ -369,8 +369,9 @@ export default function Screen3PortfolioBuilder({
             <div className="flex gap-3">
               <button
                 onClick={savePortfolio}
-                disabled={loading}
+                disabled={loading || !metaSaved}
                 className="bg-slate-700 hover:bg-slate-800 text-white font-semibold py-2 px-5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+                title={!metaSaved ? "Save yields & buckets first" : undefined}
               >
                 {loading ? "Saving…" : "Save Portfolio"}
               </button>

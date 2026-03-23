@@ -708,6 +708,8 @@ class PortfolioSave(BaseModel):
 @app.post("/portfolio/save")
 def save_portfolio(req: PortfolioSave):
     _require_df()
+    if not SESSION["asset_yields"] or not SESSION["asset_buckets"]:
+        raise HTTPException(400, "Save asset yields & buckets before saving a portfolio.")
     if not req.name.strip():
         raise HTTPException(400, "Portfolio name is required.")
     for a in req.weights:
