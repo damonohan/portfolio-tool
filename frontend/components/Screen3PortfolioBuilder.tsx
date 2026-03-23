@@ -251,8 +251,11 @@ export default function Screen3PortfolioBuilder({
       </div>
 
       {/* Section C: Portfolio creation */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-6 ${!metaSaved ? "opacity-50 pointer-events-none" : ""}`}>
         <h2 className="text-lg font-bold text-slate-800 mb-1">C — Portfolio Creation</h2>
+        {!metaSaved && (
+          <p className="text-sm text-orange-600 mb-4">Save yields & buckets above before creating portfolios.</p>
+        )}
         <p className="text-sm text-slate-500 mb-4">Build and save portfolios using asset classes only.</p>
 
         <div className="grid grid-cols-3 gap-6">

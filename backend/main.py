@@ -249,9 +249,6 @@ def _run_precalc(portfolio_name: str) -> None:
     all_note_cols = [note_col_map[nid] for nid in note_ids if nid in note_col_map]
     all_cols      = asset_cols + all_note_cols
 
-    # Pre-compute cumulative returns for all 3 horizons (string keys for JSON safety)
-    cum = {str(h): compute_cumulative_returns(df, all_cols, h) for h in (1, 2, 3)}
-
     result: dict[str, Any] = {
         "_base":   {},
         "Bullish": {},
@@ -262,12 +259,29 @@ def _run_precalc(portfolio_name: str) -> None:
     # Asset yields as fractions for income_boost calculation
     asset_yields_frac = {a: y / 100.0 for a, y in asset_yields.items()}
 
-    # Base metrics for 3 horizons
+    # Framework config for bucket selection per outlook
+    fw_cfg      = SESSION.get("framework_config") or _default_framework_config()
+    out_buckets = fw_cfg.get("outlook_buckets", _default_framework_config()["outlook_buckets"])
+    global_max  = 0.40   # compute up to 40%; per-cell cap applied client-side / at ranking time
+
+    # Pre-compute outlook bucket info (invariant across horizons)
+    outlook_info: dict[str, tuple[list[str], float]] = {}
+    for outlook in ("Bullish", "Bearish", "Neutral"):
+        allowed_buckets = set(out_buckets.get(outlook, []))
+        bucket_assets = [a for a, b in asset_buckets.items() if b in allowed_buckets and a in weights]
+        bucket_total  = sum(weights[a] for a in bucket_assets)
+        outlook_info[outlook] = (bucket_assets, bucket_total)
+
+    # Process ONE horizon at a time to limit peak memory (~36MB per horizon instead of ~108MB)
     for h in (1, 2, 3):
-        base_ret = portfolio_returns(cum[str(h)], weights)
+        hs = str(h)
+        cd = compute_cumulative_returns(df, all_cols, h)
+
+        # Base metrics for this horizon
+        base_ret = portfolio_returns(cd, weights)
         m        = compute_metrics(base_ret, risk_free, h)
         inc_pct  = expected_income(weights, asset_yields)
-        result["_base"][str(h)] = {
+        result["_base"][hs] = {
             "sharpe":               round(m["sharpe"],  4),
             "pct_neg":              round(m["pct_neg"], 4),
             "shorty":               round(m["shorty"],  4),
@@ -276,27 +290,20 @@ def _run_precalc(portfolio_name: str) -> None:
             "expected_income_pct":  round(inc_pct,      4),
         }
 
-    # Candidates per outlook per horizon — uses framework_config for bucket selection;
-    # NO note-type filtering here: all notes computed, filtering applied at ranking time.
-    fw_cfg      = SESSION.get("framework_config") or _default_framework_config()
-    out_buckets = fw_cfg.get("outlook_buckets", _default_framework_config()["outlook_buckets"])
-    global_max  = 0.40   # compute up to 40%; per-cell cap applied client-side / at ranking time
+        # Pre-extract numpy array for asset columns (avoids repeated DataFrame indexing)
+        asset_arr = cd[asset_cols].values  # shape (n_sims, n_assets)
+        asset_weight_order = [weights[a] for a in asset_cols]
 
-    for outlook in ("Bullish", "Bearish", "Neutral"):
-        allowed_buckets = set(out_buckets.get(outlook, []))
+        # Candidates for all 3 outlooks at this horizon
+        for outlook in ("Bullish", "Bearish", "Neutral"):
+            bucket_assets, bucket_total = outlook_info[outlook]
 
-        # Bucket assets eligible for reduction under this outlook
-        bucket_assets = [a for a, b in asset_buckets.items() if b in allowed_buckets and a in weights]
-        bucket_total  = sum(weights[a] for a in bucket_assets)
-
-        for h in (1, 2, 3):
             if bucket_total <= 0:
-                result[outlook][str(h)] = []
+                result[outlook][hs] = []
                 continue
 
-            base_m    = result["_base"][str(h)]
-            base_inc  = base_m["expected_income_pct"] / 100.0  # convert to fraction
-            cd        = cum[str(h)]
+            base_m    = result["_base"][hs]
+            base_inc  = base_m["expected_income_pct"] / 100.0
             candidates: list[dict] = []
 
             for note_id in note_ids:
@@ -304,13 +311,10 @@ def _run_precalc(portfolio_name: str) -> None:
                 if note_col is None:
                     continue
                 meta      = note_meta.get(note_id, {})
-                # Extended fields (underlier, protection_type, protection_pct) live in
-                # note_suggestions (parsed from the Notes sheet), NOT in note_meta which
-                # only stores the user-editable type + yield_pct.
                 ext       = SESSION.get("note_suggestions", {}).get(note_id, {})
                 note_type = meta.get("type", "")
-
                 note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
+                note_arr  = cd[note_col].values  # extract once per note
 
                 step  = 0.05
                 alloc = step
@@ -325,21 +329,17 @@ def _run_precalc(portfolio_name: str) -> None:
                     for a in bucket_assets:
                         new_weights[a] = weights[a] - (weights[a] / bucket_total) * alloc_r
 
-                    new_asset_w = {a: w for a, w in new_weights.items() if a in asset_cols}
-
-                    asset_ret = cd[asset_cols].values @ np.array([new_asset_w[a] for a in asset_cols])
-                    note_ret  = cd[note_col].values * alloc_r
-                    port_ret  = asset_ret + note_ret
+                    new_w_arr = np.array([new_weights[a] for a in asset_cols])
+                    port_ret  = asset_arr @ new_w_arr + note_arr * alloc_r
 
                     m = compute_metrics(port_ret, risk_free, h)
 
-                    # Income boost (in fraction units to match rank_score)
+                    # Income boost
                     new_income = sum(new_weights.get(a, 0.0) * asset_yields_frac.get(a, 0.0) for a in asset_cols)
                     if note_type in NOTE_TYPES_INCOME:
                         new_income += alloc_r * note_yield_frac
                     income_boost = new_income - base_inc
 
-                    # Acceptance: at least one criterion improves
                     improves = (
                         m["sharpe"]  >= base_m["sharpe"]  or
                         m["pct_neg"] <= base_m["pct_neg"] or
@@ -364,7 +364,9 @@ def _run_precalc(portfolio_name: str) -> None:
 
                     alloc += step
 
-            result[outlook][str(h)] = candidates
+            result[outlook][hs] = candidates
+
+        del cd  # free cumulative returns before next horizon
 
     SESSION["precalc"][portfolio_name] = result
 

@@ -34,6 +34,7 @@ export default function Home() {
   // Pre-calc data — loaded after portfolios are saved, passed to Screen 5
   const [precalcData, setPrecalcData]       = useState<Record<string, PortfolioPrecalc>>({});
   const [precalcLoading, setPrecalcLoading] = useState(false);
+  const [precalcStatus, setPrecalcStatus]   = useState("");
 
   // Framework — lifted so it survives back-navigation between steps 4 & 5
   const [framework, setFramework] = useState<Framework>({
@@ -53,12 +54,15 @@ export default function Home() {
 
   const loadPrecalc = async () => {
     setPrecalcLoading(true);
+    setPrecalcStatus("");
     try {
       const data = await api.portfolioPrecalc();
       setPrecalcData(data.portfolios);
       // Trigger precalc for any portfolios not yet computed (one at a time to avoid timeout)
       if (data.missing && data.missing.length > 0) {
-        for (const name of data.missing) {
+        for (let i = 0; i < data.missing.length; i++) {
+          const name = data.missing[i];
+          setPrecalcStatus(`Computing "${name}" (${i + 1}/${data.missing.length})…`);
           try {
             await api.triggerPrecalc(name);
           } catch {
@@ -73,6 +77,7 @@ export default function Home() {
       // non-fatal
     } finally {
       setPrecalcLoading(false);
+      setPrecalcStatus("");
     }
   };
 
@@ -274,6 +279,7 @@ export default function Home() {
               initialFramework={framework}
               precalcData={precalcData}
               precalcLoading={precalcLoading}
+              precalcStatus={precalcStatus}
               frameworkConfig={frameworkConfig}
               onContinue={handleFrameworkDone}
             />

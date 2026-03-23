@@ -38,6 +38,7 @@ interface Props {
   initialFramework: Framework;
   precalcData:     Record<string, PortfolioPrecalc>;
   precalcLoading:  boolean;
+  precalcStatus?:  string;
   frameworkConfig: FrameworkConfig | null;
   onContinue:      (framework: Framework) => void;
 }
@@ -47,6 +48,7 @@ export default function Screen4Analysis({
   initialFramework,
   precalcData,
   precalcLoading,
+  precalcStatus,
   frameworkConfig,
   onContinue,
 }: Props) {
@@ -225,9 +227,11 @@ export default function Screen4Analysis({
 
       {/* Loading spinner */}
       {precalcLoading && (
-        <div className="flex items-center justify-center py-10 text-slate-500 gap-3">
-          <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full" />
-          Loading pre-computed data…
+        <div className="flex flex-col items-center justify-center py-10 text-slate-500 gap-3">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full" />
+            {precalcStatus || "Loading pre-computed data…"}
+          </div>
         </div>
       )}
 
