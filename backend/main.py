@@ -190,12 +190,13 @@ def _require_df() -> pd.DataFrame:
 
 def _cum_returns(columns: list[str], horizon: int) -> np.ndarray:
     """Compute cumulative returns from the numpy sim_data array.
-    Returns shape (n_sims, len(columns)) as float64 for precision."""
+    Returns shape (n_sims, len(columns)) as float64 for precision.
+    Indexes columns first to avoid creating a full 139-column intermediate."""
     raw = SESSION["sim_data"]       # (n_sims, n_periods, n_all_cols), float32
     col_idx = SESSION["sim_col_idx"]
     indices = [col_idx[c] for c in columns]
-    # Slice: (n_sims, horizon, len(columns))
-    sub = raw[:, :horizon, :][:, :, indices].astype(np.float64)
+    # Index columns first, then time — avoids full-width intermediate
+    sub = np.ascontiguousarray(raw[:, :horizon, :][:, :, indices]).astype(np.float64)
     return np.prod(1 + sub, axis=1) - 1  # (n_sims, len(columns))
 
 
@@ -303,13 +304,14 @@ def _run_precalc(portfolio_name: str) -> None:
     asset_indices = [col_idx[c] for c in asset_cols]
     w_arr_base    = np.array([weights[a] for a in asset_cols], dtype=np.float64)
 
-    # Process ONE horizon at a time — pure numpy, no pandas intermediates
+    # Process ONE horizon at a time; only extract needed columns (~1MB vs ~11MB)
     raw = SESSION["sim_data"]  # (n_sims, n_periods, n_all_cols), float32
     for h in (1, 2, 3):
         hs = str(h)
-        # Cumulative returns for all columns at this horizon
-        wealth = np.prod(1 + raw[:, :h, :].astype(np.float64), axis=1) - 1  # (n_sims, n_all_cols)
-        asset_arr = wealth[:, asset_indices]  # (n_sims, n_assets)
+        # Asset cumulative returns ONLY (14 cols ≈ 1.1MB, not all 139 cols ≈ 11MB)
+        asset_sub = np.ascontiguousarray(raw[:, :h, :][:, :, asset_indices]).astype(np.float64)
+        asset_arr = np.prod(1 + asset_sub, axis=1) - 1  # (n_sims, n_assets)
+        del asset_sub
 
         # Base metrics
         base_ret = asset_arr @ w_arr_base
@@ -344,7 +346,10 @@ def _run_precalc(portfolio_name: str) -> None:
                 ext       = SESSION.get("note_suggestions", {}).get(note_id, {})
                 note_type = meta.get("type", "")
                 note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
-                note_arr  = wealth[:, col_idx[note_col]]
+                # Compute cumulative return for this ONE note column (~80KB)
+                note_ci = col_idx[note_col]
+                note_sub = raw[:, :h, note_ci].astype(np.float64)  # (n_sims, h)
+                note_arr = np.prod(1 + note_sub, axis=1) - 1 if h > 1 else note_sub.ravel()
 
                 step  = 0.05
                 alloc = step
@@ -394,7 +399,7 @@ def _run_precalc(portfolio_name: str) -> None:
 
             result[outlook][hs] = candidates
 
-        del wealth, asset_arr  # free before next horizon
+        del asset_arr  # free before next horizon
 
     SESSION["precalc"][portfolio_name] = result
 
@@ -412,16 +417,9 @@ async def startup_event():
             with open(UPLOAD_PATH, "rb") as f:
                 contents = f.read()
             _parse_and_load_xlsx(contents, "simulation.xlsx")
-            # Re-run precalc for every restored portfolio so that extended metadata
-            # (underlier, protection_type, protection_pct) from the Notes sheet is
-            # picked up correctly — fixes any stale candidates that had protection_pct=0.0
-            for name in list(SESSION.get("portfolios", {}).keys()):
-                try:
-                    _run_precalc(name)
-                except Exception:
-                    pass
-            if SESSION.get("portfolios"):
-                _db_save_session(SESSION["fingerprint"])
+            # Precalc is restored from portfolios_db.json during parse.
+            # Do NOT re-run precalc here — with 125+ notes it causes OOM.
+            # Frontend triggers lazy precalc per portfolio via POST /precalc/{name}.
         except Exception:
             pass  # non-fatal — user can re-upload if file is corrupt
 
@@ -855,12 +853,12 @@ def save_framework_config(req: FrameworkConfigRequest):
         "cells":           req.cells,
     }
     _db_save_framework_config()
-    # Re-run precalc for all saved portfolios since eligibility rules changed
-    if SESSION["sim_data"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
-        for name in list(SESSION["portfolios"].keys()):
-            _run_precalc(name)
+    # Invalidate precalc — framework rules changed, must recompute.
+    # Frontend triggers lazy recompute per portfolio via POST /precalc/{name}.
+    SESSION["precalc"] = {}
+    if SESSION["fingerprint"]:
         _db_save_session(SESSION["fingerprint"])
-    return {"ok": True}
+    return {"ok": True, "precalc_invalidated": bool(SESSION["portfolios"])}
 
 
 @app.post("/framework-config/reset")
@@ -868,9 +866,8 @@ def reset_framework_config():
     """Reset framework config to built-in defaults and re-run precalc."""
     SESSION["framework_config"] = _default_framework_config()
     _db_save_framework_config()
-    if SESSION["sim_data"] is not None and SESSION["portfolios"] and SESSION["asset_buckets"]:
-        for name in list(SESSION["portfolios"].keys()):
-            _run_precalc(name)
+    SESSION["precalc"] = {}
+    if SESSION["fingerprint"]:
         _db_save_session(SESSION["fingerprint"])
     return {"ok": True, "config": SESSION["framework_config"]}
 
@@ -1341,15 +1338,12 @@ def portfolio_candidates(risk_free: float = 2.0):
     note_meta      = SESSION["note_meta"]
     asset_yields   = SESSION["asset_yields"]
 
-    note_cols = list(note_col_map.values())
-    all_cols  = all_asset_cols + note_cols
+    raw        = SESSION["sim_data"]
+    col_idx    = SESSION["sim_col_idx"]
+    alloc_steps = [round(i * 0.05, 2) for i in range(1, 9)]  # 0.05 … 0.40
 
-    # Pre-compute cumulative returns for all 3 horizons using numpy
-    cum = {h: _cum_returns(all_cols, h) for h in (1, 2, 3)}
-
-    def _m(_unused, ret_vec, risk_free, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon=1):
-        """Compute metrics dict for one horizon."""
-        m          = compute_metrics(ret_vec, risk_free, horizon)
+    def _metrics(ret_vec, rfr, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon):
+        m          = compute_metrics(ret_vec, rfr, horizon)
         new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in a_cols)
         if note_type == "Income":
             new_income += alloc * note_yield_frac * 100
@@ -1362,25 +1356,22 @@ def portfolio_candidates(risk_free: float = 2.0):
             "std":                  round(m["std"],     4),
         }
 
-    alloc_steps = [round(i * 0.05, 2) for i in range(1, 9)]  # 0.05 … 0.40
-
     result = []
     for port_name, port in SESSION["portfolios"].items():
         weights    = port["weights"]
         asset_cols = list(weights.keys())
-        port_rfr   = port.get("risk_free", risk_free)  # use portfolio's own RFR
+        port_rfr   = port.get("risk_free", risk_free)
+        w_arr      = np.array([weights[a] for a in asset_cols])
+        asset_idx  = [col_idx[a] for a in asset_cols]
 
-        # Build column index maps for this portfolio's assets
-        asset_ci = [all_cols.index(a) for a in asset_cols]
-        w_arr    = np.array([weights[a] for a in asset_cols])
-
-        # Base metrics for all 3 horizons
+        # Base metrics — one horizon at a time (asset cols only ≈ 1MB each)
         base_income = expected_income(weights, asset_yields)
         base_h: dict[str, dict] = {}
         for h in (1, 2, 3):
-            asset_data = cum[h][:, asset_ci]
-            base_ret   = asset_data @ w_arr
-            bm         = compute_metrics(base_ret, port_rfr, h)
+            asset_sub = np.ascontiguousarray(raw[:, :h, :][:, :, asset_idx]).astype(np.float64)
+            asset_arr = np.prod(1 + asset_sub, axis=1) - 1
+            base_ret  = asset_arr @ w_arr
+            bm        = compute_metrics(base_ret, port_rfr, h)
             base_h[f"h{h}"] = {
                 "sharpe":               round(bm["sharpe"],  4),
                 "pct_neg":              round(bm["pct_neg"], 4),
@@ -1395,41 +1386,62 @@ def portfolio_candidates(risk_free: float = 2.0):
             key=lambda x: -x["weight_pct"],
         )
 
+        # Candidates: process one horizon at a time to avoid holding all 3 in memory
+        # Build per-note, per-alloc skeleton first, then fill horizon metrics
         note_rows = []
         for note_id, meta in note_meta.items():
-            note_col   = note_col_map.get(note_id)
-            if note_col is None or note_col not in SESSION["sim_col_idx"]:
+            note_col = note_col_map.get(note_id)
+            if note_col is None or note_col not in col_idx:
                 continue
             note_type  = meta.get("type", "")
             note_yield = meta.get("yield_pct", 0.0) / 100.0
-            note_ci    = all_cols.index(note_col)
+            n_ci       = col_idx[note_col]
 
             candidates = []
             for alloc in alloc_steps:
                 new_weights = {a: w * (1.0 - alloc) for a, w in weights.items()}
-                nw_vec      = np.array([new_weights[a] for a in asset_cols])
-
-                # Complete portfolio weights (assets + note), all in %
                 full_weights = {a: round(new_weights[a] * 100, 2) for a in asset_cols}
                 full_weights[f"NOTE:{note_id}"] = int(round(alloc * 100))
-
-                cand: dict = {
-                    "alloc_pct":    int(round(alloc * 100)),
-                    "weights":      full_weights,
-                }
-                for h in (1, 2, 3):
-                    cd_arr = cum[h]
-                    ret  = cd_arr[:, asset_ci] @ nw_vec + cd_arr[:, note_ci] * alloc
-                    cand[f"h{h}"] = _m(None, ret, port_rfr, note_type, note_yield,
-                                       alloc, new_weights, asset_cols, h)
-                candidates.append(cand)
+                candidates.append({
+                    "alloc_pct": int(round(alloc * 100)),
+                    "weights":   full_weights,
+                    "_nw":       new_weights,  # temporary, removed before response
+                })
 
             note_rows.append({
                 "note_id":    note_id,
                 "note_type":  note_type,
                 "yield_pct":  meta.get("yield_pct", 0.0),
                 "candidates": candidates,
+                "_note_yield": note_yield,
+                "_n_ci":       n_ci,
             })
+
+        # Fill horizon metrics one horizon at a time
+        for h in (1, 2, 3):
+            asset_sub = np.ascontiguousarray(raw[:, :h, :][:, :, asset_idx]).astype(np.float64)
+            asset_arr = np.prod(1 + asset_sub, axis=1) - 1
+            del asset_sub
+
+            for nr in note_rows:
+                n_ci = nr["_n_ci"]
+                note_sub = raw[:, :h, n_ci].astype(np.float64)
+                note_arr = np.prod(1 + note_sub, axis=1) - 1 if h > 1 else note_sub.ravel()
+
+                for cand in nr["candidates"]:
+                    alloc   = cand["alloc_pct"] / 100.0
+                    nw_vec  = np.array([cand["_nw"][a] for a in asset_cols])
+                    ret     = asset_arr @ nw_vec + note_arr * alloc
+                    cand[f"h{h}"] = _metrics(ret, port_rfr, nr["note_type"], nr["_note_yield"],
+                                             alloc, cand["_nw"], asset_cols, h)
+
+            del asset_arr
+
+        # Clean up temporary fields
+        for nr in note_rows:
+            del nr["_note_yield"], nr["_n_ci"]
+            for cand in nr["candidates"]:
+                del cand["_nw"]
 
         result.append({
             "name":        port_name,
