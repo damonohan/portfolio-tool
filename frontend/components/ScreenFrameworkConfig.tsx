@@ -7,7 +7,7 @@ const OUTLOOKS  = ["Bullish", "Neutral", "Bearish"] as const;
 const RISKS     = ["Conservative", "Moderate", "Aggressive"] as const;
 const GOALS     = ["Growth", "Balanced", "Income"] as const;
 const BUCKETS   = ["Equity", "Fixed Income", "Alternative", "Cash"] as const;
-const ALL_TYPES = ["Growth", "Digital", "Absolute", "Income", "MLCD", "PPN"] as const;
+const ALL_TYPES = ["Growth", "Digital", "Absolute", "Income", "MLCD", "PPN", "Snowball"] as const;
 
 type TabKey = "buckets" | "Bullish" | "Neutral" | "Bearish";
 

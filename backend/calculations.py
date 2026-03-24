@@ -70,7 +70,7 @@ def expected_income(weights: dict[str, float], yields: dict[str, float]) -> floa
 
 # ── framework look-up tables ───────────────────────────────────────────────────
 
-NOTE_TYPES_GROWTH = {"Growth", "Digital", "Absolute"}
+NOTE_TYPES_GROWTH = {"Growth", "Digital", "Absolute", "Snowball"}
 NOTE_TYPES_INCOME  = {"Income", "MLCD", "PPN"}
 ALL_BUCKETS = {"Equity", "Fixed Income", "Alternative", "Cash"}
 

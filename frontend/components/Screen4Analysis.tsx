@@ -10,7 +10,7 @@ const GOALS         = ["Growth", "Balanced", "Income"] as const;
 const HORIZONS      = [1, 2, 3] as const;
 
 // Fallback constants used when no framework config is loaded yet
-const NOTE_TYPES_GROWTH = new Set(["Growth", "Digital", "Absolute"]);
+const NOTE_TYPES_GROWTH = new Set(["Growth", "Digital", "Absolute", "Snowball"]);
 const NOTE_TYPES_INCOME = new Set(["Income", "MLCD", "PPN"]);
 
 const RISK_MAX_FALLBACK: Record<string, number> = {

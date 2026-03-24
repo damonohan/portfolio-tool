@@ -188,6 +188,7 @@ export default function Screen5Improvements({ framework }: Props) {
                           : imp.note_type === "Growth" ? "bg-blue-100 text-blue-700"
                           : imp.note_type === "Digital" ? "bg-purple-100 text-purple-700"
                           : imp.note_type === "Absolute" ? "bg-slate-100 text-slate-700"
+                          : imp.note_type === "Snowball" ? "bg-rose-100 text-rose-700"
                           : "bg-orange-100 text-orange-700"
                         }`}>{imp.note_type}</span>
                       </td>

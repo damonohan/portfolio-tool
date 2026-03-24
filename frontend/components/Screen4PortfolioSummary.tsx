@@ -11,6 +11,7 @@ const NOTE_COLORS: Record<string, { border: string; badge: string }> = {
   Absolute: { border: "border-amber-400",   badge: "bg-amber-100 text-amber-800" },
   MLCD:     { border: "border-teal-400",    badge: "bg-teal-100 text-teal-800" },
   PPN:      { border: "border-teal-400",    badge: "bg-teal-100 text-teal-800" },
+  Snowball: { border: "border-rose-400",    badge: "bg-rose-100 text-rose-800" },
 };
 const noteColor = (t: string) =>
   NOTE_COLORS[t] ?? { border: "border-slate-300", badge: "bg-slate-100 text-slate-700" };

@@ -208,9 +208,9 @@ _GOALS          = ("Growth", "Balanced", "Income")
 _MAX_ALLOC      = 30.0   # flat max allocation for every cell
 
 _DEFAULT_TYPES: dict[str, list[str]] = {
-    "Bullish": ["Growth", "Digital", "Absolute"],
-    "Neutral": ["Growth", "Digital", "Absolute", "Income", "MLCD", "PPN"],
-    "Bearish": ["Income", "MLCD", "PPN", "Absolute"],
+    "Bullish": ["Growth", "Digital", "Absolute", "Snowball"],
+    "Neutral": ["Growth", "Digital", "Absolute", "Snowball", "Income", "MLCD", "PPN"],
+    "Bearish": ["Income", "MLCD", "PPN", "Absolute", "Snowball"],
 }
 # Min protection % tiered by risk × outlook (same for all 3 goals within each combo)
 _DEFAULT_MIN_PROT: dict[str, dict[str, float]] = {
@@ -671,7 +671,7 @@ class ClassifyRequest(BaseModel):
     classifications: list[NoteClassification]
 
 
-VALID_TYPES = {"Income", "Growth", "Digital", "Absolute", "MLCD", "PPN"}
+VALID_TYPES = {"Income", "Growth", "Digital", "Absolute", "MLCD", "PPN", "Snowball"}
 
 
 @app.post("/classify-notes")

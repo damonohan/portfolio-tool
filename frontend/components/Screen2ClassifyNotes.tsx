@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { api, NoteMeta } from "@/lib/api";
 
-const NOTE_TYPES = ["Income", "Growth", "Digital", "Absolute", "MLCD", "PPN"] as const;
+const NOTE_TYPES = ["Income", "Growth", "Digital", "Absolute", "MLCD", "PPN", "Snowball"] as const;
 
 interface NoteRow {
   note_id:       string;
