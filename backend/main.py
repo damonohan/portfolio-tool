@@ -109,11 +109,25 @@ def _db_save_framework_config() -> None:
 
 
 def _db_load_framework_config() -> None:
-    """Load framework_config from DB top-level key into SESSION."""
+    """Load framework_config from DB top-level key into SESSION.
+    Auto-merges any new default types added in code into saved cells."""
     db = _load_db()
     saved = db.get("framework_config")
     if saved and saved.get("cells"):
+        # Merge any new default types into saved cells (e.g. Snowball added after initial save)
+        dirty = False
+        for key, cell in saved["cells"].items():
+            outlook = key.split("|")[0]
+            defaults = _DEFAULT_TYPES.get(outlook, [])
+            existing = set(cell.get("allowed_types", []))
+            for t in defaults:
+                if t not in existing:
+                    cell["allowed_types"].append(t)
+                    dirty = True
         SESSION["framework_config"] = saved
+        if dirty:
+            db["framework_config"] = saved
+            _save_db(db)
     else:
         SESSION["framework_config"] = _default_framework_config()
 
