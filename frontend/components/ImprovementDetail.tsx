@@ -89,8 +89,8 @@ function MetricCard({
   const improved = lowerIsBetter ? diff < 0 : diff > 0;
 
   const data = [
-    { id: "Before", Before: before },
-    { id: "After", After: after },
+    { id: "Before", Before: before, After: 0 },
+    { id: "After", Before: 0, After: after },
   ];
 
   return (
