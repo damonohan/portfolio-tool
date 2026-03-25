@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api, Improvement } from "@/lib/api";
 import dynamic from "next/dynamic";
+import ImprovementDetail from "./ImprovementDetail";
 
 // Plotly must be loaded client-side only
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -34,6 +35,7 @@ export default function Screen5Improvements({ framework }: Props) {
   const [histograms, setHistograms]     = useState<Record<number, { data: unknown[]; layout: unknown }>>({});
   const [loadingHist, setLoadingHist]   = useState<Record<number, boolean>>({});
   const [expandedIdx, setExpandedIdx]   = useState<number | null>(null);
+  const [detailIdx, setDetailIdx]       = useState<number | null>(null);
   const exportRef = useRef<HTMLAnchorElement>(null);
 
   const run = async () => {
@@ -89,6 +91,16 @@ export default function Screen5Improvements({ framework }: Props) {
   };
 
   return (
+    <>
+    {detailIdx !== null && baseMetrics && (
+      <ImprovementDetail
+        index={detailIdx}
+        improvement={improvements[detailIdx]}
+        baseMetrics={baseMetrics}
+        onClose={() => setDetailIdx(null)}
+      />
+    )}
+
     <div className="max-w-6xl mx-auto space-y-6">
 
       {/* Framework reminder */}
@@ -213,11 +225,10 @@ export default function Screen5Improvements({ framework }: Props) {
                       <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">{imp.score.toFixed(4)}</td>
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => loadHistogram(idx)}
-                          disabled={loadingHist[idx]}
-                          className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                          onClick={() => setDetailIdx(idx)}
+                          className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg transition-colors"
                         >
-                          {loadingHist[idx] ? "…" : expandedIdx === idx ? "Hide" : "View"}
+                          View
                         </button>
                       </td>
                     </tr>
@@ -247,5 +258,6 @@ export default function Screen5Improvements({ framework }: Props) {
 
       <a ref={exportRef} className="hidden" />
     </div>
+    </>
   );
 }

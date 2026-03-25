@@ -74,6 +74,7 @@ export const api = {
     risk_tolerance: string;
     goal: string;
     horizon: number;
+    ensure_note_id?: string;
   }) =>
     req<{
       base: { sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
@@ -85,6 +86,8 @@ export const api = {
     }),
 
   getHistogram: (index: number) => req<PlotlyData>(`/histogram/${index}`),
+
+  getImprovementDetail: (index: number) => req<ImprovementDetail>(`/improvement-detail/${index}`),
 
   sessionState: () =>
     req<{
@@ -145,6 +148,9 @@ export const api = {
 
   resetFrameworkConfig: () =>
     req<{ ok: boolean; config: FrameworkConfig }>("/framework-config/reset", { method: "POST" }),
+
+  getEfficientFrontier: (outlook = "Neutral") =>
+    req<EfficientFrontierData>(`/efficient-frontier?outlook=${outlook}`),
 
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
@@ -274,4 +280,38 @@ export interface Improvement {
 export interface PlotlyData {
   data: unknown[];
   layout: unknown;
+}
+
+export interface ImprovementDetail {
+  note_id: string;
+  note_type: string;
+  underlier: string;
+  protection_type: string;
+  protection_pct: number;
+  alloc_pct: number;
+  base_weights: Record<string, number>;
+  after_weights: Record<string, number>;
+  base_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
+  after_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
+  alloc_curve: { alloc_pct: number; mean_return: number }[];
+  histogram: PlotlyData;
+}
+
+export interface EfficientFrontierPoint {
+  portfolio: string;
+  mean: number;
+  std: number;
+}
+
+export interface EfficientFrontierNotePoint extends EfficientFrontierPoint {
+  note_id: string;
+  note_type: string;
+  underlier: string;
+  alloc_pct: number;
+}
+
+export interface EfficientFrontierData {
+  base_points: EfficientFrontierPoint[];
+  note_points: EfficientFrontierNotePoint[];
+  note_frontier: EfficientFrontierNotePoint[];
 }

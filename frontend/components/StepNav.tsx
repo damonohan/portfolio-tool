@@ -7,6 +7,7 @@ const STEPS = [
   "Portfolio Summary",
   "Analysis",
   "Improvements",
+  "Frontier",
 ];
 
 export default function StepNav({

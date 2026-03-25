@@ -894,6 +894,7 @@ class FindImprovementsRequest(BaseModel):
     risk_tolerance: str
     goal:           str
     horizon:        int   # 1, 2, or 3
+    ensure_note_id: str | None = None  # If set, guarantee this note appears in results
 
 
 @app.post("/find-improvements")
@@ -941,6 +942,15 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
     scored.sort(key=lambda x: x["score"], reverse=True)
     seen: set[str] = set()
     top5: list[dict] = []
+
+    # If a specific note is requested, ensure it's included first
+    if req.ensure_note_id:
+        for c in scored:
+            if c["note_id"] == req.ensure_note_id:
+                seen.add(c["note_id"])
+                top5.append(c)
+                break
+
     for c in scored:
         if c["note_id"] not in seen:
             seen.add(c["note_id"])
@@ -1094,6 +1104,254 @@ def get_histogram(index: int):
         height=400,
     )
     return json.loads(fig.to_json())
+
+
+# ── Improvement detail (combined weights + metrics + histogram) ──────────────
+
+@app.get("/improvement-detail/{index}")
+def get_improvement_detail(index: int):
+    """Return full before/after comparison data for improvement at `index`."""
+    meta = SESSION.get("improvements_meta")
+    if meta is None:
+        raise HTTPException(400, "No improvements found. Run find-improvements first.")
+    imps = SESSION.get("improvements", [])
+    if index >= len(imps):
+        raise HTTPException(404, "Improvement index out of range.")
+
+    imp       = imps[index]
+    fw        = meta["framework"]
+    base_m    = meta["base_metrics"]
+    port      = SESSION["portfolios"][fw["portfolio_name"]]
+    weights   = port["weights"]           # {asset: fraction}
+    risk_free = fw["risk_free"]
+    horizon   = fw["horizon"]
+    note_id   = imp["note_id"]
+    alloc_pct = imp["alloc_pct"]          # already % (e.g. 10.0)
+    alloc_r   = alloc_pct / 100.0
+
+    # Note metadata
+    ext = SESSION.get("note_suggestions", {}).get(note_id, {})
+    underlier       = ext.get("underlier", note_id) or note_id
+    protection_type = ext.get("protection_type", "")
+    protection_pct  = ext.get("protection_pct", 0.0)
+    note_type       = imp["note_type"]
+
+    # Base weights → %
+    base_weights = {a: round(w * 100, 2) for a, w in weights.items()}
+
+    # After weights: reduce bucket assets proportionally (same logic as find-improvements)
+    out_bkts_cfg  = (SESSION.get("framework_config") or _default_framework_config())["outlook_buckets"]
+    allowed_bkts  = set(out_bkts_cfg.get(fw["outlook"], []))
+    bucket_assets = [a for a, b in SESSION["asset_buckets"].items() if b in allowed_bkts and a in weights]
+    bucket_total  = sum(weights[a] for a in bucket_assets) if bucket_assets else 0.0
+
+    new_weights = dict(weights)
+    if bucket_total > 0 and bucket_assets:
+        for a in bucket_assets:
+            new_weights[a] = weights[a] - (weights[a] / bucket_total) * alloc_r
+    after_weights = {a: round(w * 100, 2) for a, w in new_weights.items()}
+    note_label = f"{note_type}: {underlier}"
+    after_weights[note_label] = round(alloc_r * 100, 2)
+
+    # After metrics: compute mean from stored port_returns
+    port_ret  = np.array(imp["port_returns"])
+    after_m   = compute_metrics(port_ret, risk_free, horizon)
+    after_inc = base_m["expected_income_pct"] + imp["income_boost"] * 100
+
+    # Histogram (dark fintech theme)
+    base_ret = np.array(meta["base_returns"])
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=base_ret * 100,
+        name="Base Portfolio",
+        opacity=0.65,
+        marker_color="rgba(6,182,212,0.7)",
+        histnorm="probability density",
+        nbinsx=80,
+    ))
+    fig.add_trace(go.Histogram(
+        x=port_ret * 100,
+        name=f"With {underlier}",
+        opacity=0.55,
+        marker_color="rgba(34,197,94,0.7)",
+        histnorm="probability density",
+        nbinsx=80,
+    ))
+    fig.add_vline(x=0, line_dash="dash", line_color="rgba(239,68,68,0.7)",
+                  annotation_text="0%", annotation_font_color="rgba(239,68,68,0.8)")
+    fig.update_layout(
+        barmode="overlay",
+        title=dict(text=f"Return Distribution: Base vs {underlier} @ {alloc_pct}%",
+                   font=dict(color="#e2e8f0", size=16)),
+        xaxis_title="Final Cumulative Return (%)",
+        yaxis_title="Density",
+        xaxis=dict(color="#94a3b8", gridcolor="#1e293b"),
+        yaxis=dict(color="#94a3b8", gridcolor="#1e293b"),
+        legend=dict(x=0.01, y=0.99, font=dict(color="#cbd5e1")),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,23,42,0.6)",
+        height=420,
+        font=dict(color="#94a3b8"),
+    )
+
+    # Allocation curve: mean return at each allocation step for this note
+    alloc_curve = [{"alloc_pct": 0, "mean_return": round(base_m["mean"] * 100, 2)}]
+    note_col_map = SESSION["note_col_map"]
+    note_col     = note_col_map.get(note_id)
+    asset_cols   = list(weights.keys())
+    if note_col and bucket_total > 0:
+        all_cols   = asset_cols + [note_col]
+        wealth     = _cum_returns(all_cols, horizon)
+        asset_arr  = wealth[:, :len(asset_cols)]
+        note_arr   = wealth[:, len(asset_cols)]
+        w_arr_base = np.array([weights[a] for a in asset_cols])
+        step = 0.05
+        alloc_step = step
+        while alloc_step <= alloc_r + 1e-9:
+            ar = round(alloc_step, 4)
+            step_weights = np.array([
+                weights[a] - (weights[a] / bucket_total) * ar if a in bucket_assets else weights[a]
+                for a in asset_cols
+            ])
+            step_ret = asset_arr @ step_weights + note_arr * ar
+            step_m   = compute_metrics(step_ret, risk_free, horizon)
+            alloc_curve.append({
+                "alloc_pct": round(ar * 100, 1),
+                "mean_return": round(step_m["mean"] * 100, 2),
+            })
+            alloc_step += step
+
+    return {
+        "note_id":         note_id,
+        "note_type":       note_type,
+        "underlier":       underlier,
+        "protection_type": protection_type,
+        "protection_pct":  round(protection_pct, 1),
+        "alloc_pct":       alloc_pct,
+        "base_weights":    base_weights,
+        "after_weights":   after_weights,
+        "base_metrics": {
+            "mean":                round(base_m["mean"] * 100,  2),
+            "sharpe":              round(base_m["sharpe"],      4),
+            "pct_neg":             round(base_m["pct_neg"],     2),
+            "shorty":              round(base_m["shorty"],      4),
+            "expected_income_pct": round(base_m["expected_income_pct"], 2),
+        },
+        "after_metrics": {
+            "mean":                round(after_m["mean"] * 100, 2),
+            "sharpe":              round(after_m["sharpe"],     4),
+            "pct_neg":             round(after_m["pct_neg"],    2),
+            "shorty":              round(after_m["shorty"],     4),
+            "expected_income_pct": round(after_inc,             2),
+        },
+        "alloc_curve":     alloc_curve,
+        "histogram": json.loads(fig.to_json()),
+    }
+
+
+# ── Efficient frontier ─────────────────────────────────────────────────────────
+
+@app.get("/efficient-frontier")
+def get_efficient_frontier(outlook: str = "Neutral"):
+    """Return mean vs std for all base portfolios and note candidates at horizon=2."""
+    _require_data()
+    horizon = 2
+    h_key   = str(horizon)
+
+    base_points: list[dict] = []
+    note_points: list[dict] = []
+
+    note_col_map  = SESSION["note_col_map"]
+    note_meta     = SESSION["note_meta"]
+    suggestions   = SESSION.get("note_suggestions", {})
+    asset_buckets = SESSION["asset_buckets"]
+
+    for port_name, precalc_port in SESSION.get("precalc", {}).items():
+        port     = SESSION["portfolios"].get(port_name)
+        if not port:
+            continue
+        weights   = port["weights"]
+        risk_free = port.get("risk_free", 2.0)
+        asset_cols = list(weights.keys())
+
+        # Base point
+        base_m = precalc_port.get("_base", {}).get(h_key)
+        if base_m and "mean" in base_m and "std" in base_m:
+            base_points.append({
+                "portfolio": port_name,
+                "mean": round(base_m["mean"] * 100, 2),
+                "std":  round(base_m["std"] * 100, 2),
+            })
+
+        # Note candidates — need to recompute mean & std
+        candidates = precalc_port.get(outlook, {}).get(h_key, [])
+        if not candidates:
+            continue
+
+        # Compute cumulative returns once for this portfolio
+        all_note_cols = [note_col_map[nid] for nid in SESSION["note_ids"] if nid in note_col_map]
+        all_cols      = asset_cols + all_note_cols
+        col_idx       = SESSION["sim_col_idx"]
+        wealth        = _cum_returns(all_cols, horizon)
+        asset_arr     = wealth[:, :len(asset_cols)]
+
+        # Bucket info for weight adjustments
+        out_bkts_cfg   = (SESSION.get("framework_config") or _default_framework_config())["outlook_buckets"]
+        allowed_bkts   = set(out_bkts_cfg.get(outlook, []))
+        bucket_assets  = [a for a, b in asset_buckets.items() if b in allowed_bkts and a in weights]
+        bucket_total   = sum(weights[a] for a in bucket_assets) if bucket_assets else 0.0
+
+        for cand in candidates:
+            nid      = cand["note_id"]
+            note_col = note_col_map.get(nid)
+            if note_col is None or note_col not in col_idx:
+                continue
+            alloc_r = cand["alloc_pct"]  # fraction
+
+            # Compute portfolio returns with this note
+            note_ci  = all_cols.index(note_col)
+            note_arr = wealth[:, note_ci]
+            if bucket_total > 0 and bucket_assets:
+                new_w = np.array([
+                    weights[a] - (weights[a] / bucket_total) * alloc_r if a in bucket_assets else weights[a]
+                    for a in asset_cols
+                ])
+            else:
+                new_w = np.array([weights[a] for a in asset_cols])
+            port_ret = asset_arr @ new_w + note_arr * alloc_r
+            m        = compute_metrics(port_ret, risk_free, horizon)
+
+            ext = suggestions.get(nid, {})
+            note_points.append({
+                "portfolio":  port_name,
+                "note_id":    nid,
+                "note_type":  cand["note_type"],
+                "underlier":  ext.get("underlier", nid) or nid,
+                "alloc_pct":  round(alloc_r * 100, 1),
+                "mean":       round(m["mean"] * 100, 2),
+                "std":        round(m["std"] * 100, 2),
+            })
+
+    # ── Compute note-enhanced efficient frontier ──
+    # From all note_points, find the Pareto-optimal set:
+    # points where no other point has higher mean AND lower std.
+    # Then sort by std to form the frontier line.
+    note_frontier: list[dict] = []
+    if note_points:
+        # Sort by std ascending
+        sorted_pts = sorted(note_points, key=lambda p: p["std"])
+        # Sweep: keep points where mean is higher than any previous frontier point
+        max_mean = float("-inf")
+        for pt in sorted_pts:
+            if pt["mean"] > max_mean:
+                note_frontier.append(pt)
+                max_mean = pt["mean"]
+
+    return {
+        "base_points": base_points,
+        "note_points": note_points,
+        "note_frontier": note_frontier,
+    }
 
 
 # ── Export CSV ────────────────────────────────────────────────────────────────

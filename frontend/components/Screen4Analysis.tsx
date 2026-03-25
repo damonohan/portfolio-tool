@@ -41,6 +41,7 @@ interface Props {
   precalcStatus?:  string;
   frameworkConfig: FrameworkConfig | null;
   onContinue:      (framework: Framework) => void;
+  onFrontier?:     (framework: Framework) => void;
 }
 
 export default function Screen4Analysis({
@@ -51,6 +52,7 @@ export default function Screen4Analysis({
   precalcStatus,
   frameworkConfig,
   onContinue,
+  onFrontier,
 }: Props) {
   const [outlook,  setOutlook]  = useState<string>(initialFramework.outlook  || "Neutral");
   const [risk,     setRisk]     = useState<string>(initialFramework.risk_tolerance || "Moderate");
@@ -341,9 +343,17 @@ export default function Screen4Analysis({
         </div>
       )}
 
-      {/* Continue button */}
+      {/* Continue buttons */}
       {baseMetrics && !precalcLoading && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          {onFrontier && (
+            <button
+              onClick={() => onFrontier({ outlook, risk_tolerance: risk, goal, portfolio_name: portName, horizon })}
+              className="border-2 border-blue-700 text-blue-700 hover:bg-blue-50 font-semibold py-2.5 px-6 rounded-lg transition-colors"
+            >
+              View Frontier →
+            </button>
+          )}
           <button
             onClick={() => onContinue({ outlook, risk_tolerance: risk, goal, portfolio_name: portName, horizon })}
             className="bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors"

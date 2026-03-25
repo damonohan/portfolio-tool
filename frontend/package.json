@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@nivo/bar": "^0.99.0",
+    "@nivo/core": "^0.99.0",
     "@types/react-plotly.js": "^2.6.4",
     "next": "16.1.6",
     "plotly.js": "^3.4.0",

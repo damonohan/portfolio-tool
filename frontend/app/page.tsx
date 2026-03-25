@@ -9,6 +9,7 @@ import Screen3PortfolioBuilder from "@/components/Screen3PortfolioBuilder";
 import Screen4PortfolioSummary from "@/components/Screen4PortfolioSummary";
 import Screen4Analysis from "@/components/Screen4Analysis";
 import Screen5Improvements from "@/components/Screen5Improvements";
+import ScreenEfficientFrontier from "@/components/ScreenEfficientFrontier";
 import ScreenFrameworkConfig from "@/components/ScreenFrameworkConfig";
 
 // risk_free removed — now stored per-portfolio on the backend
@@ -193,6 +194,13 @@ export default function Home() {
   const handleFrameworkDone = (fw: Framework) => {
     setFramework(fw);
     advanceTo(6);
+    setMaxStep((prev) => Math.max(prev, 7)); // unlock Frontier step
+  };
+
+  const handleFrontier = (fw: Framework) => {
+    setFramework(fw);
+    advanceTo(7);
+    setMaxStep((prev) => Math.max(prev, 7));
   };
 
   const handleConfigSaved = (cfg: FrameworkConfig) => {
@@ -282,11 +290,16 @@ export default function Home() {
               precalcStatus={precalcStatus}
               frameworkConfig={frameworkConfig}
               onContinue={handleFrameworkDone}
+              onFrontier={handleFrontier}
             />
           )}
 
           {step === 6 && (
             <Screen5Improvements framework={framework} />
+          )}
+
+          {step === 7 && (
+            <ScreenEfficientFrontier framework={framework} />
           )}
         </div>
       </main>
