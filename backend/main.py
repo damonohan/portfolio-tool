@@ -621,20 +621,20 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
         }
         _save_db(db)
 
-    # ── Auto-classify notes if Tracking sheet covered every note ID ──────────
+    # ── Auto-classify notes if Tracking sheet covers every data note ID ──────
     auto_classified = False
     if (
         note_suggestions
-        and set(note_suggestions.keys()) == set(note_ids)
+        and set(note_ids) <= set(note_suggestions.keys())  # tracking covers all data notes
         and not SESSION["note_meta"]   # don't overwrite a restored DB entry
     ):
         SESSION["note_meta"] = {
             nid: {
-                "type":      s["type"],
-                "yield_pct": s["yield_pct"] if s["type"] == "Income" else 0.0,
+                "type":      note_suggestions[nid]["type"],
+                "yield_pct": note_suggestions[nid]["yield_pct"] if note_suggestions[nid]["type"] == "Income" else 0.0,
             }
-            for nid, s in note_suggestions.items()
-            if s.get("type") in VALID_TYPES  # only apply valid types
+            for nid in note_ids
+            if note_suggestions.get(nid, {}).get("type") in VALID_TYPES
         }
         if set(SESSION["note_meta"].keys()) == set(note_ids):
             _db_save_session(SESSION["fingerprint"])
