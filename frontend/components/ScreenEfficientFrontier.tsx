@@ -39,7 +39,7 @@ export default function ScreenEfficientFrontier({ framework }: ScreenProps = {})
   // Detail overlay state
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
   const [detailImprovement, setDetailImprovement] = useState<Improvement | null>(null);
-  const [detailBaseMetrics, setDetailBaseMetrics] = useState<{sharpe:number;pct_neg:number;shorty:number;expected_income_pct:number} | null>(null);
+  const [detailBaseMetrics, setDetailBaseMetrics] = useState<{sharpe:number;pct_neg:number;shorty:number;downside_kurt:number;expected_income_pct:number} | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {

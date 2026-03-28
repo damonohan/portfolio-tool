@@ -9,7 +9,7 @@ A Monte Carlo–based web application that helps financial advisors evaluate whi
 2. [Tech Stack](#tech-stack)
 3. [Running Locally](#running-locally)
 4. [Input File Format](#input-file-format)
-5. [6-Step Workflow](#6-step-workflow)
+5. [7-Step Workflow](#7-step-workflow)
 6. [Session Persistence](#session-persistence)
 7. [API Endpoints](#api-endpoints)
 8. [Deployment](#deployment)
@@ -26,6 +26,7 @@ Given a Monte Carlo simulation file (thousands of simulated annual return paths 
 4. Shows a statistical summary of each saved portfolio (Sharpe, % Negative, Shorty, Expected Income)
 5. Lets the user select a market framework (Outlook × Risk Tolerance × Goal) and runs a base portfolio calculation
 6. Searches all note × allocation combinations that pass the framework constraints, and surfaces the top 5 candidates ranked by a composite improvement score
+7. Visualises the efficient frontier — plotting risk vs return for all base portfolios and note-enhanced variants to identify optimal trade-offs
 
 Results can be exported as a CSV table or a full PDF report with embedded return-distribution histograms.
 
@@ -40,7 +41,7 @@ Results can be exported as a CSV table or a full PDF report with embedded return
 | Visualisation | Plotly (histograms), Kaleido (PNG export) |
 | PDF generation | ReportLab |
 | Frontend | Next.js 16 + TypeScript + Tailwind CSS |
-| Charts (UI) | react-plotly.js (dynamic import, client-side only) |
+| Charts (UI) | react-plotly.js (histograms), Nivo (bar charts) — both client-side only |
 
 ---
 
@@ -114,7 +115,7 @@ If the file contains a sheet named `Tracking` or `Notes`, the tool reads:
 
 ---
 
-## 6-Step Workflow
+## 7-Step Workflow
 
 ### Step 1 — Upload
 1. User drags & drops an `.xlsx` file (or clicks to browse)
@@ -123,7 +124,7 @@ If the file contains a sheet named `Tracking` or `Notes`, the tool reads:
 4. Returns: asset list, note list, row count, 10-row data preview, and any auto-classification suggestions
 
 ### Step 2 — Classify Notes
-1. Each detected note is displayed with a type dropdown: `Income | Growth | Digital | Absolute | MLCD | PPN`
+1. Each detected note is displayed with a type dropdown: `Income | Growth | Digital | Absolute | MLCD | PPN | Snowball`
 2. Notes auto-classified from the Tracking sheet show a blue **auto** badge
 3. Income notes additionally require an expected annual yield (%)
 4. All notes must be classified before proceeding
@@ -171,6 +172,17 @@ Each row in the results table shows delta metrics vs the base. Users can expand 
 
 See [CALCULATIONS.md](CALCULATIONS.md) for the full mathematical detail.
 
+### Step 7 — Efficient Frontier
+Calls `GET /efficient-frontier?outlook={outlook}` to visualise the risk–return trade-off at a fixed 2-year horizon. The chart displays:
+
+- **Base portfolio points** (gold line) — annualized mean vs std for each saved portfolio
+- **Note candidate cloud** (grey dots) — mean vs std for every (portfolio × note × allocation) combo that passed acceptance criteria during pre-calculation
+- **Note-enhanced frontier** (teal dashed line) — the Pareto-optimal set where no other point offers higher return at the same or lower risk
+
+Users can switch outlook to see how the candidate cloud shifts. Clicking any point in the cloud opens an improvement detail overlay with the overlay histogram.
+
+See [CALCULATIONS.md](CALCULATIONS.md) for the frontier construction algorithm.
+
 ---
 
 ## Session Persistence
@@ -214,7 +226,9 @@ The backend persists state to `backend/portfolios_db.json`, keyed by a 16-charac
 | `POST` | `/find-improvements` | Filter pre-computed candidates by framework cell, return top 5 |
 | `GET` | `/portfolio-summary` | Stats for all portfolios (horizon + RFR params) |
 | `GET` | `/portfolio-candidates` | All note × allocation combinations (pre-framework filtering) |
+| `GET` | `/improvement-detail/{index}` | Improvement details with overlay histogram data |
 | `GET` | `/histogram/{index}` | Plotly JSON for base vs candidate overlay |
+| `GET` | `/efficient-frontier` | Mean vs std for all portfolios and note candidates (horizon=2) |
 | `GET` | `/export/csv` | Download improvements table as CSV |
 | `GET` | `/export/pdf` | Download full report as PDF |
 | `GET` | `/session-state` | Return current session metadata for frontend restore |
@@ -261,6 +275,8 @@ portfolio/
 │       ├── Screen4PortfolioSummary.tsx
 │       ├── Screen4Analysis.tsx
 │       ├── Screen5Improvements.tsx
+│       ├── ScreenEfficientFrontier.tsx
+│       ├── ImprovementDetail.tsx
 │       └── ScreenFrameworkConfig.tsx
 ├── runtime.txt              # Python version for Render
 ├── README.md                # This file

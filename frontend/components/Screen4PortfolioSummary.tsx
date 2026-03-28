@@ -20,6 +20,7 @@ const noteColor = (t: string) =>
 const fmtSharpe = (v: number) => v.toFixed(3);
 const fmtPct    = (v: number) => v.toFixed(1) + "%";
 const fmtShorty = (v: number) => v.toFixed(3);
+const fmtDKurt  = (v: number) => v.toFixed(3);
 const fmtIncome = (v: number) => v.toFixed(2) + "%";
 const fmtMean   = (v: number) => (v * 100).toFixed(2) + "%";
 
@@ -116,6 +117,7 @@ function BaseRow({ base }: { base: HorizonMetrics }) {
       <td className={td}>{fmtSharpe(base.sharpe)}</td>
       <td className={td}>{fmtPct(base.pct_neg)}</td>
       <td className={td}>{fmtShorty(base.shorty)}</td>
+      <td className={td}>{fmtDKurt(base.downside_kurt)}</td>
       <td className={td}>{fmtIncome(base.expected_income_pct)}</td>
       <td className={td}>{fmtMean(base.mean)}</td>
     </tr>
@@ -164,6 +166,9 @@ function NoteGroup({
             </td>
             <td className="px-3 py-1.5 text-right">
               <DeltaCell value={m.shorty} base={base.shorty} higherBetter={false} fmt={fmtShorty} />
+            </td>
+            <td className="px-3 py-1.5 text-right">
+              <DeltaCell value={m.downside_kurt} base={base.downside_kurt} higherBetter={false} fmt={fmtDKurt} />
             </td>
             <td className="px-3 py-1.5 text-right">
               <DeltaCell value={m.expected_income_pct} base={base.expected_income_pct} higherBetter fmt={fmtIncome} />
@@ -269,6 +274,7 @@ function PortfolioPanel({ port, defaultOpen }: { port: PortfolioCandidate; defau
                   <th className={thR}>Sharpe</th>
                   <th className={thR}>% Neg</th>
                   <th className={thR}>Shorty</th>
+                  <th className={thR}>D. Kurt</th>
                   <th className={thR}>E. Income</th>
                   <th className={thR}>Mean Ret</th>
                 </tr>

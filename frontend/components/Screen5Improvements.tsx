@@ -116,11 +116,12 @@ export default function Screen5Improvements({ framework }: Props) {
       {baseMetrics && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <h3 className="text-base font-bold text-slate-800 mb-3">Base Portfolio Metrics</h3>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-5 gap-4">
             {[
               { label: "Sharpe Ratio", value: baseMetrics.sharpe.toFixed(4) },
               { label: "% Negative", value: `${baseMetrics.pct_neg.toFixed(2)}%` },
               { label: "Shorty (Ex. Kurt.)", value: baseMetrics.shorty.toFixed(4) },
+              { label: "D. Kurt. (Downside)", value: (baseMetrics.downside_kurt ?? 0).toFixed(4) },
               { label: "Expected Income", value: `${baseMetrics.expected_income_pct.toFixed(2)}%` },
             ].map((m) => (
               <div key={m.label} className="bg-slate-50 rounded-lg border border-slate-200 p-3 text-center">
@@ -183,6 +184,7 @@ export default function Screen5Improvements({ framework }: Props) {
                   <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">New Sharpe</th>
                   <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">New %Neg</th>
                   <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">New Shorty</th>
+                  <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">New D.Kurt</th>
                   <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">Income Boost</th>
                   <th className="px-4 py-3 text-right font-semibold bg-slate-50 text-slate-500 text-xs uppercase">Score</th>
                   <th className="px-4 py-3 text-center font-semibold bg-slate-50 text-slate-500 text-xs uppercase">Chart</th>
@@ -217,6 +219,10 @@ export default function Screen5Improvements({ framework }: Props) {
                         {imp.new_shorty.toFixed(4)}
                         {baseMetrics && <Delta val={imp.new_shorty} base={baseMetrics.shorty} lower />}
                       </td>
+                      <td className="px-4 py-3 text-right text-slate-800">
+                        {(imp.new_downside_kurt ?? 0).toFixed(4)}
+                        {baseMetrics && <Delta val={imp.new_downside_kurt ?? 0} base={baseMetrics.downside_kurt ?? 0} lower />}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         {imp.income_boost > 0
                           ? <span className="text-green-600 font-semibold">+{(imp.income_boost * 100).toFixed(4)}%</span>
@@ -234,7 +240,7 @@ export default function Screen5Improvements({ framework }: Props) {
                     </tr>
                     {expandedIdx === idx && histograms[idx] && (
                       <tr>
-                        <td colSpan={10} className="px-4 py-4 bg-slate-50">
+                        <td colSpan={11} className="px-4 py-4 bg-slate-50">
                           <Plot
                             data={histograms[idx].data as Plotly.Data[]}
                             layout={{

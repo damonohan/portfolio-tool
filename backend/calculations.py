@@ -54,12 +54,16 @@ def compute_metrics(final_returns: np.ndarray, risk_free_rate: float, horizon: i
     sharpe = (mean - rfr) / std if std > 0 else 0.0
     pct_neg = float(np.sum(final_returns < 0) / len(final_returns) * 100)
     shorty  = float(stats.kurtosis(final_returns, fisher=True))   # excess kurtosis
+    # Downside kurtosis: excess kurtosis of negative returns only (barrier tail risk)
+    downside = final_returns[final_returns < 0]
+    downside_kurt = float(stats.kurtosis(downside, fisher=True)) if len(downside) > 30 else 0.0
     return {
-        "mean":    mean,
-        "std":     std,
-        "sharpe":  sharpe,
-        "pct_neg": pct_neg,
-        "shorty":  shorty,
+        "mean":          mean,
+        "std":           std,
+        "sharpe":        sharpe,
+        "pct_neg":       pct_neg,
+        "shorty":        shorty,
+        "downside_kurt": downside_kurt,
     }
 
 
@@ -137,15 +141,17 @@ def rank_score(
     """
     Higher is better.  Weights depend on framework goal.
     """
-    w_sharpe = 1.0
-    w_neg    = 1.0
-    w_shorty = 0.5
-    w_income = 0.5 if goal == "Income" else 0.1
+    w_sharpe   = 1.0
+    w_neg      = 1.0
+    w_shorty   = 0.5
+    w_downside = 0.5
+    w_income   = 0.5 if goal == "Income" else 0.0 if goal == "Growth" else 0.1
 
     score = (
-        w_sharpe * (cand["sharpe"]  - base["sharpe"])
-        - w_neg  * (cand["pct_neg"] - base["pct_neg"])
-        - w_shorty * (cand["shorty"]  - base["shorty"])
+        w_sharpe   * (cand["sharpe"]        - base["sharpe"])
+        - w_neg    * (cand["pct_neg"]       - base["pct_neg"])
+        - w_shorty * (cand["shorty"]        - base["shorty"])
+        - w_downside * (cand.get("downside_kurt", 0) - base.get("downside_kurt", 0))
         + w_income * cand.get("income_boost", 0.0)
     )
     return float(score)
@@ -233,9 +239,10 @@ def find_improvements(
 
             # Acceptance: at least one criterion improves
             improves = (
-                m["sharpe"]  >= base_metrics["sharpe"]  or
-                m["pct_neg"] <= base_metrics["pct_neg"] or
-                m["shorty"]  <= base_metrics["shorty"]  or
+                m["sharpe"]        >= base_metrics["sharpe"]        or
+                m["pct_neg"]       <= base_metrics["pct_neg"]       or
+                m["shorty"]        <= base_metrics["shorty"]        or
+                m["downside_kurt"] <= base_metrics["downside_kurt"] or
                 (note_type == "Income" and income_boost > 0)
             )
             if improves:

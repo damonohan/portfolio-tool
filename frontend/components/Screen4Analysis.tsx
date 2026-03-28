@@ -24,11 +24,12 @@ function rankScore(
   cand: PrecalcCandidate["metrics"],
   goal: string
 ): number {
-  const wIncome = goal === "Income" ? 0.5 : 0.1;
+  const wIncome = goal === "Income" ? 0.5 : goal === "Growth" ? 0.0 : 0.1;
   return (
     1.0 * (cand.sharpe  - base.sharpe)
     - 1.0 * (cand.pct_neg - base.pct_neg)
     - 0.5 * (cand.shorty  - base.shorty)
+    - 0.5 * ((cand.downside_kurt ?? 0) - (base.downside_kurt ?? 0))
     + wIncome * cand.income_boost
   );
 }
@@ -107,13 +108,14 @@ export default function Screen4Analysis({
       }
       const score = rankScore(base, c.metrics, goal);
       scored.push({
-        note_id:      c.note_id,
-        note_type:    c.note_type,
-        alloc_pct:    c.alloc_pct,
-        sharpe:       c.metrics.sharpe,
-        pct_neg:      c.metrics.pct_neg,
-        shorty:       c.metrics.shorty,
-        income_boost: c.metrics.income_boost,
+        note_id:       c.note_id,
+        note_type:     c.note_type,
+        alloc_pct:     c.alloc_pct,
+        sharpe:        c.metrics.sharpe,
+        pct_neg:       c.metrics.pct_neg,
+        shorty:        c.metrics.shorty,
+        downside_kurt: c.metrics.downside_kurt ?? 0,
+        income_boost:  c.metrics.income_boost,
         score,
       });
     }
@@ -249,10 +251,11 @@ export default function Screen4Analysis({
       {baseMetrics && !precalcLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
           <h3 className="text-lg font-bold text-slate-800">Base Portfolio — {horizon}yr Horizon</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <MetricCard label="Sharpe Ratio"     value={baseMetrics.sharpe.toFixed(4)} />
             <MetricCard label="% Negative"       value={`${baseMetrics.pct_neg.toFixed(2)}%`} />
             <MetricCard label="Shorty"           value={baseMetrics.shorty.toFixed(4)} />
+            <MetricCard label="D. Kurt. (Downside)" value={(baseMetrics.downside_kurt ?? 0).toFixed(4)} />
             <MetricCard label="Expected Income"  value={`${baseMetrics.expected_income_pct.toFixed(2)}%`} />
           </div>
           <div className="flex gap-4 text-sm text-slate-500">
@@ -290,6 +293,7 @@ export default function Screen4Analysis({
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Sharpe</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New %Neg</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Shorty</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New D.Kurt</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Income Boost</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Score</th>
                   </tr>
@@ -299,6 +303,7 @@ export default function Screen4Analysis({
                     const sharpeDelta  = r.sharpe  - baseMetrics.sharpe;
                     const pctNegDelta  = r.pct_neg - baseMetrics.pct_neg;
                     const shortyDelta  = r.shorty  - baseMetrics.shorty;
+                    const dkurtDelta   = (r.downside_kurt ?? 0) - (baseMetrics.downside_kurt ?? 0);
                     return (
                       <tr key={r.note_id} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-blue-700">#{idx + 1}</td>
@@ -325,6 +330,12 @@ export default function Screen4Analysis({
                           {r.shorty.toFixed(4)}
                           <span className={`ml-1 text-xs ${shortyDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
                             ({shortyDelta >= 0 ? "+" : ""}{shortyDelta.toFixed(4)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-800">
+                          {(r.downside_kurt ?? 0).toFixed(4)}
+                          <span className={`ml-1 text-xs ${dkurtDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({dkurtDelta >= 0 ? "+" : ""}{dkurtDelta.toFixed(4)})
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">

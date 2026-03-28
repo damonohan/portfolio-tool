@@ -188,6 +188,7 @@ export interface HorizonMetrics {
   sharpe: number;
   pct_neg: number;
   shorty: number;
+  downside_kurt: number;
   expected_income_pct: number;
   mean: number;
   std: number;
@@ -224,6 +225,7 @@ export interface PrecalcMetrics {
   sharpe: number;
   pct_neg: number;
   shorty: number;
+  downside_kurt: number;
   expected_income_pct: number;
   mean: number;
   std: number;
@@ -240,6 +242,7 @@ export interface PrecalcCandidate {
     sharpe: number;
     pct_neg: number;
     shorty: number;
+    downside_kurt: number;
     income_boost: number;  // fraction units
   };
 }
@@ -262,6 +265,7 @@ export interface RankedCandidate {
   sharpe: number;
   pct_neg: number;
   shorty: number;
+  downside_kurt: number;
   income_boost: number;
   score: number;
 }
@@ -273,6 +277,7 @@ export interface Improvement {
   new_sharpe: number;
   new_pct_neg: number;
   new_shorty: number;
+  new_downside_kurt: number;
   income_boost: number;
   score: number;
 }

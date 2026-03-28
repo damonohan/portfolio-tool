@@ -17,7 +17,8 @@ This document describes every mathematical and algorithmic decision made in the 
 10. [Scoring & Ranking](#scoring--ranking)
 11. [Deduplication & Top-5 Selection](#deduplication--top-5-selection)
 12. [Histogram Generation](#histogram-generation)
-13. [Units Reference](#units-reference)
+13. [Efficient Frontier](#efficient-frontier)
+14. [Units Reference](#units-reference)
 
 ---
 
@@ -123,6 +124,7 @@ For a 1-year horizon this is a no-op. For multi-year horizons it extracts the eq
 | **Sharpe** | `(mean − rfr) / std` | Higher is better | Yes — uses annualized mean & std; rfr = risk_free_rate / 100 |
 | **% Negative** | `100 × count(cumulative_r < 0) / n_sims` | Lower is better | No — uses raw cumulative returns |
 | **Shorty** | `scipy.stats.kurtosis(cumulative_returns, fisher=True)` | Lower is better | No — uses raw cumulative returns |
+| **Downside Kurt.** | `scipy.stats.kurtosis(cumulative_returns[<0], fisher=True)` | Lower is better | No — uses raw cumulative returns (negative only) |
 
 ### Sharpe Ratio
 The Sharpe ratio uses annualized returns for cross-horizon comparability. The risk-free rate input is the **annual** rate in % (e.g. `2.0` = 2%) and is divided by 100 to get the fractional hurdle (e.g. `0.02`). When `std = 0`, Sharpe is returned as `0.0`.
@@ -130,7 +132,17 @@ The Sharpe ratio uses annualized returns for cross-horizon comparability. The ri
 **Note:** Even with annualization, the Sharpe ratio may increase with longer horizons. This is the well-known "time diversification" effect — annualized volatility from compounded returns decreases roughly as `1/√horizon` while annualized mean stays roughly constant.
 
 ### Shorty (Excess Kurtosis)
-The "Shorty" metric is excess kurtosis — how much heavier the tails of the return distribution are compared to a normal distribution. A value of 0 is normal; positive values indicate fat tails (more extreme outcomes than normal). Lower Shorty is preferred as it implies more predictable tail behaviour. Computed from **raw cumulative returns** (not annualized).
+The "Shorty" metric is excess kurtosis — how much heavier the tails of the return distribution are compared to a normal distribution. A value of 0 is normal; positive values indicate fat tails (more extreme outcomes than normal). Lower Shorty is preferred as it implies more predictable tail behaviour. Computed from **raw cumulative returns** (not annualized). Note: Shorty treats upside and downside tails symmetrically.
+
+### Downside Kurtosis
+Downside kurtosis measures excess kurtosis of **negative returns only** — how heavy the left tail is compared to a normal distribution. This is particularly relevant for notes with barrier protection: such notes clip moderate losses (reducing pct_neg) but expose investors to extreme losses when the barrier is breached. Downside kurtosis captures this "cliff" risk that Shorty misses by averaging both tails.
+
+```
+downside = cumulative_returns[cumulative_returns < 0]
+downside_kurt = scipy.stats.kurtosis(downside, fisher=True) if len(downside) > 30 else 0.0
+```
+
+The 30-sample minimum prevents unstable estimates when very few simulations end negative. Lower downside kurtosis is preferred.
 
 ---
 
@@ -150,10 +162,10 @@ expected_income_pct = Σ  weight[a] × annual_yield_pct[a]
 This value is **not** multiplied by 100 anywhere — it is already in %. When a note is added, the expected income from that note is:
 
 ```
-note_income_contribution = alloc_fraction × note_yield_pct    (if Income type only)
+note_income_contribution = alloc_fraction × note_yield_pct    (if income-category note)
 ```
 
-All other note types (Growth, Digital, Absolute, MLCD, PPN) contribute 0 to expected income.
+Income-category note types — `Income`, `MLCD`, and `PPN` (collectively `NOTE_TYPES_INCOME`) — contribute their yield. All other note types (Growth, Digital, Absolute, Snowball) contribute 0 to expected income.
 
 ---
 
@@ -195,9 +207,9 @@ The framework also defines which asset buckets each outlook draws from during re
 
 | Outlook | Default `allowed_types` |
 |---------|------------------------|
-| Bullish | Growth, Digital, Absolute |
-| Neutral | Growth, Digital, Absolute, Income, MLCD, PPN |
-| Bearish | Income, MLCD, PPN |
+| Bullish | Growth, Digital, Absolute, Snowball |
+| Neutral | Growth, Digital, Absolute, Snowball, Income, MLCD, PPN |
+| Bearish | Income, MLCD, PPN, Absolute, Snowball |
 
 For **Balanced** goal cells, all note types are allowed regardless of outlook.
 
@@ -239,7 +251,7 @@ Triggered when a portfolio is saved or the framework config changes. For each po
    - Determine allowed asset buckets from `outlook_buckets` config
    - Identify bucket assets and their total weight (`bucket_total`)
    - For each horizon, for each note:
-     - Test allocations in **5% steps from 5% to 40%** (flat ceiling for all cells)
+     - Test allocations in **5% steps from 5% to 40%** (`global_max = 0.40`, intentionally higher than the default cell max of 30% so candidates remain available if a cell's limit is raised)
      - Pro-rata reduce bucket assets, compute new portfolio returns and metrics
      - Apply acceptance criteria (see Section 9)
      - Store accepted candidates with metrics (but **not** full 10k return arrays — only summary stats)
@@ -254,20 +266,37 @@ Pre-calculated results are stored in `SESSION["precalc"][portfolio_name]` with s
 }
 ```
 
-### Phase 2 — Framework Filtering
+### Phase 2 — Framework Cell Filtering & Goal-Specific Scoring
 
 **Endpoint:** `POST /find-improvements`
 
 When the user requests improvements with a specific (outlook, risk_tolerance, goal, horizon):
 
 1. Retrieve pre-computed candidates for the selected outlook and horizon
-2. Look up the framework cell config for `"{outlook}|{risk_tolerance}|{goal}"`
-3. Filter candidates by all cell rules (types, underliers, protection, max allocation — see Section 6)
-4. Score remaining candidates via `rank_score()` (see Section 10)
-5. Deduplicate by note ID, take top 5 (see Section 11)
-6. **Re-compute full portfolio return arrays** (10k floats) for the top 5 only — needed for histograms
+2. Build the cell key `"{outlook}|{risk_tolerance}|{goal}"` (e.g. `"Bullish|Moderate|Growth"`)
+3. Look up that cell from the **user's saved framework config** (`SESSION["framework_config"]`). If no saved config exists, fall back to built-in defaults. The user can edit every cell via `POST /framework-config`, so the allowed types, underliers, protection ranges, and max allocation are all customisable — not hardcoded by goal.
+4. Filter candidates by all cell rules (types, underliers, protection, max allocation — see Section 6)
+5. Score remaining candidates via `rank_score()` — the **only place goal directly affects the calculation** (see Section 10): Income goal weights the income boost term at 0.5 vs 0.1 for Growth/Balanced
+6. Deduplicate by note ID, take top 5 (see Section 11)
+7. **Re-compute full portfolio return arrays** (10k floats) for the top 5 only — needed for histograms
 
 This separation means the expensive simulation work is done once, and framework changes only require re-filtering.
+
+### How Goal Affects Results in Practice
+
+The goal influences suggestions through two mechanisms:
+
+**1. Cell-level filtering (configurable):** Each of the 27 cells has its own `allowed_types` list. By default, the cells are configured so that Growth-goal cells under Bullish only allow growth-category notes, Income-goal cells under Bearish only allow income-category notes, etc. But this is **entirely driven by the framework config** — the user can override any cell to allow any note types.
+
+**2. Scoring weight (hardcoded):** After filtering, the `rank_score()` function uses the goal to set the income boost weight:
+
+| Goal | Income boost weight | Effect |
+|------|-------------------|--------|
+| **Income** | 0.5 | Yield improvement heavily influences ranking; an income note that adds 0.5% pa yield gets a +0.25 score boost |
+| **Growth** | 0.0 | Income is completely ignored; ranking driven entirely by Sharpe, pct_neg, Shorty, and Downside Kurt. deltas |
+| **Balanced** | 0.1 | Income has small influence; risk/return metrics dominate |
+
+All other calculations — cumulative returns, portfolio returns, metrics (Sharpe, pct_neg, Shorty), rebalancing, acceptance criteria — are **identical** regardless of goal. The same simulation math runs; only what passes the filter and how candidates are ranked changes.
 
 ---
 
@@ -312,7 +341,8 @@ A candidate (note + allocation) is only added to the results pool if it satisfie
 | `new_sharpe ≥ base_sharpe` | Risk-adjusted return does not get worse |
 | `new_pct_neg ≤ base_pct_neg` | Fewer simulations end in loss |
 | `new_shorty ≤ base_shorty` | Tails are not heavier |
-| `note_type == "Income" AND income_boost > 0` | Income note adds expected yield |
+| `new_downside_kurt ≤ base_downside_kurt` | Left tail is not heavier |
+| `note_type ∈ NOTE_TYPES_INCOME AND income_boost > 0` | Income-category note (Income, MLCD, PPN) adds expected yield |
 
 This OR-logic ensures candidates that excel on one dimension are not excluded for being neutral on others.
 
@@ -325,10 +355,11 @@ This OR-logic ensures candidates that excel on one dimension are not excluded fo
 Accepted candidates are assigned a composite score. **Higher score = better candidate.** All metric deltas use **annualized** values (since both base and candidate metrics are annualized by `compute_metrics`).
 
 ```
-score = w_sharpe × (new_sharpe  − base_sharpe)
-      − w_neg    × (new_pct_neg − base_pct_neg)
-      − w_shorty × (new_shorty  − base_shorty)
-      + w_income × income_boost
+score = w_sharpe   × (new_sharpe        − base_sharpe)
+      − w_neg      × (new_pct_neg       − base_pct_neg)
+      − w_shorty   × (new_shorty        − base_shorty)
+      − w_downside × (new_downside_kurt − base_downside_kurt)
+      + w_income   × income_boost
 ```
 
 ### Weights
@@ -338,26 +369,28 @@ score = w_sharpe × (new_sharpe  − base_sharpe)
 | Δ Sharpe | 1.0 | Risk-adjusted return improvement is the primary goal |
 | Δ % Negative | 1.0 | Downside protection equally important as return |
 | Δ Shorty | 0.5 | Tail risk matters, but half as much as mean/downside |
-| Income Boost | 0.5 (Income goal) / 0.1 (other) | Income-focused portfolios weight yield 5× more heavily |
+| Δ Downside Kurt. | 0.5 | Left-tail risk from barrier breaches; same weight as Shorty |
+| Income Boost | 0.5 (Income) / 0.0 (Growth) / 0.1 (Balanced) | Income goal weights yield heavily; Growth ignores it entirely |
 
 ### Sign Convention
 - **Sharpe:** higher is better → reward an increase (positive term)
 - **% Negative:** lower is better → penalise an increase (negative term); a reduction (negative Δ) gives a positive contribution
 - **Shorty:** lower is better → same as % Negative
+- **Downside Kurt.:** lower is better → same as % Negative
 - **Income Boost:** higher is better → always a positive term
 
 ### Income Boost Calculation
 
 ```
 new_income_pct = Σ new_asset_weight[a] × asset_yield_pct[a]
-              + (alloc × note_yield_pct  if  note_type == "Income")
+              + (alloc × note_yield_pct  if  note_type ∈ NOTE_TYPES_INCOME)
 
 income_boost = new_income_pct − base_income_pct
 ```
 
 Units: percentage points. A boost of `0.5` means the portfolio's expected annual income yield increases by 0.5 percentage points.
 
-Note yield (`yield_pct`) is stored as a percentage (e.g. `3.5` = 3.5%) and divided by 100 before multiplication by `alloc` (a fraction), so the contribution is in the same units as the asset-yield sum.
+Note yield (`yield_pct`) is stored as a percentage (e.g. `3.5` = 3.5%) and divided by 100 before multiplication by `alloc` (a fraction), so the contribution is in the same units as the asset-yield sum. Only `NOTE_TYPES_INCOME` notes (`Income`, `MLCD`, `PPN`) contribute; all others contribute 0.
 
 ---
 
@@ -366,8 +399,9 @@ Note yield (`yield_pct`) is stored as a percentage (e.g. `3.5` = 3.5%) and divid
 After all candidates are scored:
 
 1. Sort descending by `score`
-2. Walk the sorted list; for each note ID, keep only the **first occurrence** (highest-scored allocation)
-3. Stop once 5 unique note IDs have been collected
+2. If `ensure_note_id` is provided, insert the highest-scored candidate for that note first (guarantees it appears in results even if it wouldn't normally rank top-5)
+3. Walk the sorted list; for each note ID, keep only the **first occurrence** (highest-scored allocation)
+4. Stop once 5 unique note IDs have been collected
 
 This means the table always shows the single best allocation for each note, not multiple allocations of the same note.
 
@@ -392,6 +426,49 @@ The histogram data is returned as a Plotly JSON object and rendered client-side 
 
 ---
 
+## Efficient Frontier
+
+**Endpoint:** `GET /efficient-frontier?outlook={outlook}`
+
+The efficient frontier visualises the risk–return trade-off across all saved portfolios and their note-enhanced variants. It is **fixed at horizon = 2 years** and parameterized by a single outlook (Bullish, Neutral, or Bearish).
+
+### Data Points
+
+Three datasets are returned:
+
+**1. Base Points** — one per saved portfolio. Mean and Std are read directly from `precalc["_base"]["2"]` (pre-computed at portfolio save time).
+
+**2. Note Candidate Points** — one per (portfolio × note × allocation) combination that passed the acceptance criteria during pre-calculation for the selected outlook at horizon 2. For each candidate, full portfolio returns are re-computed to obtain mean and std:
+
+```
+port_return[sim] = (Σ new_asset_weight[a] × cum_return[a, sim])
+                 + alloc × cum_return[note_col, sim]
+```
+
+Weight adjustments follow the same pro-rata rebalancing logic described in Section 8.
+
+**3. Note-Enhanced Frontier Line** — the Pareto-optimal subset of note candidate points, computed as follows:
+
+1. Sort all note candidate points by **std ascending** (lowest risk first)
+2. Sweep left-to-right, tracking the highest mean seen so far
+3. Keep a point only if its **mean > max mean of all prior frontier points**
+4. The resulting set forms the upper-left boundary: at each risk level, the best achievable return
+
+This is a standard mean–variance efficient frontier construction, identifying portfolios where no other candidate offers higher return at the same or lower risk.
+
+### Output Units
+
+Both `mean` and `std` are returned as **percentage points** (multiplied by 100 from the fractional metric values) for direct charting. `alloc_pct` is also returned as a percentage (e.g. `10.0` = 10%).
+
+### Chart Representation
+
+The frontend renders three visual layers:
+- **Gold line**: base portfolio points connected in order
+- **Grey dots**: all note candidate points (the full cloud)
+- **Teal dashed line**: the note-enhanced efficient frontier
+
+---
+
 ## Units Reference
 
 | Quantity | Stored As | Example |
@@ -407,5 +484,6 @@ The histogram data is returned as a Plotly JSON object and rendered client-side 
 | Sharpe ratio | Dimensionless (annualized) | `0.45` |
 | % Negative | Percentage points | `12.3` = 12.3% of simulations |
 | Shorty (excess kurtosis) | Dimensionless | `1.4` |
+| Downside kurtosis | Dimensionless | `2.1` (negative returns only) |
 | Expected income | Percentage points | `1.8` = 1.8% pa |
 | Income boost | Percentage points | `0.4` = adds 0.4% pa |

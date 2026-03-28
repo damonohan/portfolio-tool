@@ -332,12 +332,13 @@ def _run_precalc(portfolio_name: str) -> None:
         m        = compute_metrics(base_ret, risk_free, h)
         inc_pct  = expected_income(weights, asset_yields)
         result["_base"][hs] = {
-            "sharpe":               round(m["sharpe"],  4),
-            "pct_neg":              round(m["pct_neg"], 4),
-            "shorty":               round(m["shorty"],  4),
-            "mean":                 round(m["mean"],    4),
-            "std":                  round(m["std"],     4),
-            "expected_income_pct":  round(inc_pct,      4),
+            "sharpe":               round(m["sharpe"],        4),
+            "pct_neg":              round(m["pct_neg"],       4),
+            "shorty":               round(m["shorty"],        4),
+            "downside_kurt":        round(m["downside_kurt"], 4),
+            "mean":                 round(m["mean"],          4),
+            "std":                  round(m["std"],           4),
+            "expected_income_pct":  round(inc_pct,            4),
         }
 
         # Candidates for all 3 outlooks at this horizon
@@ -388,9 +389,10 @@ def _run_precalc(portfolio_name: str) -> None:
                     income_boost = new_income - base_inc
 
                     improves = (
-                        m["sharpe"]  >= base_m["sharpe"]  or
-                        m["pct_neg"] <= base_m["pct_neg"] or
-                        m["shorty"]  <= base_m["shorty"]  or
+                        m["sharpe"]        >= base_m["sharpe"]        or
+                        m["pct_neg"]       <= base_m["pct_neg"]       or
+                        m["shorty"]        <= base_m["shorty"]        or
+                        m["downside_kurt"] <= base_m["downside_kurt"] or
                         (note_type in NOTE_TYPES_INCOME and income_boost > 0)
                     )
                     if improves:
@@ -402,10 +404,11 @@ def _run_precalc(portfolio_name: str) -> None:
                             "protection_type": ext.get("protection_type", ""),
                             "protection_pct":  ext.get("protection_pct",  0.0),
                             "metrics": {
-                                "sharpe":       round(m["sharpe"],  4),
-                                "pct_neg":      round(m["pct_neg"], 4),
-                                "shorty":       round(m["shorty"],  4),
-                                "income_boost": round(income_boost, 6),
+                                "sharpe":        round(m["sharpe"],        4),
+                                "pct_neg":       round(m["pct_neg"],       4),
+                                "shorty":        round(m["shorty"],        4),
+                                "downside_kurt": round(m["downside_kurt"], 4),
+                                "income_boost":  round(income_boost,       6),
                             },
                         })
 
@@ -963,9 +966,10 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
         SESSION["improvements_meta"] = None
         return {
             "base": {
-                "sharpe":               round(base_m["sharpe"],  4),
-                "pct_neg":              round(base_m["pct_neg"], 4),
-                "shorty":               round(base_m["shorty"],  4),
+                "sharpe":               round(base_m["sharpe"],        4),
+                "pct_neg":              round(base_m["pct_neg"],       4),
+                "shorty":               round(base_m["shorty"],        4),
+                "downside_kurt":        round(base_m.get("downside_kurt", 0), 4),
                 "expected_income_pct":  round(base_m["expected_income_pct"], 4),
             },
             "improvements": [],
@@ -1020,15 +1024,16 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
         income_boost = m["income_boost"]
 
         results.append({
-            "note_id":      note_id,
-            "note_type":    c["note_type"],
-            "alloc_pct":    round(alloc_r * 100, 1),   # convert to % for response
-            "new_sharpe":   round(m["sharpe"],  4),
-            "new_pct_neg":  round(m["pct_neg"], 4),
-            "new_shorty":   round(m["shorty"],  4),
-            "income_boost": round(income_boost, 4),
-            "score":        round(c["score"],   6),
-            "port_returns": port_ret.tolist(),
+            "note_id":            note_id,
+            "note_type":          c["note_type"],
+            "alloc_pct":          round(alloc_r * 100, 1),   # convert to % for response
+            "new_sharpe":         round(m["sharpe"],        4),
+            "new_pct_neg":        round(m["pct_neg"],       4),
+            "new_shorty":         round(m["shorty"],        4),
+            "new_downside_kurt":  round(m.get("downside_kurt", 0), 4),
+            "income_boost":       round(income_boost,       4),
+            "score":              round(c["score"],         6),
+            "port_returns":       port_ret.tolist(),
         })
 
     SESSION["improvements"] = results
@@ -1049,9 +1054,10 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
 
     return {
         "base": {
-            "sharpe":               round(base_m["sharpe"],  4),
-            "pct_neg":              round(base_m["pct_neg"], 4),
-            "shorty":               round(base_m["shorty"],  4),
+            "sharpe":               round(base_m["sharpe"],        4),
+            "pct_neg":              round(base_m["pct_neg"],       4),
+            "shorty":               round(base_m["shorty"],        4),
+            "downside_kurt":        round(base_m.get("downside_kurt", 0), 4),
             "expected_income_pct":  round(base_m["expected_income_pct"], 4),
         },
         "improvements": response_results,
@@ -1231,17 +1237,19 @@ def get_improvement_detail(index: int):
         "base_weights":    base_weights,
         "after_weights":   after_weights,
         "base_metrics": {
-            "mean":                round(base_m["mean"] * 100,  2),
-            "sharpe":              round(base_m["sharpe"],      4),
-            "pct_neg":             round(base_m["pct_neg"],     2),
-            "shorty":              round(base_m["shorty"],      4),
+            "mean":                round(base_m["mean"] * 100,        2),
+            "sharpe":              round(base_m["sharpe"],             4),
+            "pct_neg":             round(base_m["pct_neg"],            2),
+            "shorty":              round(base_m["shorty"],             4),
+            "downside_kurt":       round(base_m["downside_kurt"],      4),
             "expected_income_pct": round(base_m["expected_income_pct"], 2),
         },
         "after_metrics": {
-            "mean":                round(after_m["mean"] * 100, 2),
-            "sharpe":              round(after_m["sharpe"],     4),
-            "pct_neg":             round(after_m["pct_neg"],    2),
-            "shorty":              round(after_m["shorty"],     4),
+            "mean":                round(after_m["mean"] * 100,   2),
+            "sharpe":              round(after_m["sharpe"],        4),
+            "pct_neg":             round(after_m["pct_neg"],       2),
+            "shorty":              round(after_m["shorty"],        4),
+            "downside_kurt":       round(after_m["downside_kurt"], 4),
             "expected_income_pct": round(after_inc,             2),
         },
         "alloc_curve":     alloc_curve,
@@ -1418,15 +1426,16 @@ def export_pdf():
     # Base summary
     story.append(Paragraph("<b>Base Portfolio Summary</b>", styles["Heading2"]))
     base_data = [
-        ["Sharpe", "% Negative", "Shorty (Ex. Kurtosis)", "Expected Income %"],
+        ["Sharpe", "% Negative", "Shorty (Ex. Kurt.)", "D. Kurt.", "Expected Income %"],
         [
             f"{bm['sharpe']:.4f}",
             f"{bm['pct_neg']:.2f}%",
             f"{bm['shorty']:.4f}",
+            f"{bm.get('downside_kurt', 0):.4f}",
             f"{bm['expected_income_pct']:.2f}%",
         ]
     ]
-    t = Table(base_data, colWidths=[1.5*inch]*4)
+    t = Table(base_data, colWidths=[1.3*inch]*5)
     t.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (-1,0), colors.darkblue),
         ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
@@ -1439,16 +1448,17 @@ def export_pdf():
 
     # Improvements table
     story.append(Paragraph("<b>Top Improvement Candidates</b>", styles["Heading2"]))
-    headers = ["Note ID", "Type", "Alloc %", "New Sharpe", "New %Neg", "New Shorty", "Income Boost", "Score"]
+    headers = ["Note ID", "Type", "Alloc %", "New Sharpe", "New %Neg", "New Shorty", "New D.Kurt", "Inc Boost", "Score"]
     imp_rows = [headers]
     for r in imps:
         imp_rows.append([
             r["note_id"], r["note_type"], f"{r['alloc_pct']}%",
             f"{r['new_sharpe']:.4f}", f"{r['new_pct_neg']:.2f}%",
-            f"{r['new_shorty']:.4f}", f"{r['income_boost']:.4f}",
+            f"{r['new_shorty']:.4f}", f"{r.get('new_downside_kurt', 0):.4f}",
+            f"{r['income_boost']:.4f}",
             f"{r['score']:.4f}",
         ])
-    col_w = [0.9*inch, 0.75*inch, 0.65*inch, 0.85*inch, 0.75*inch, 0.85*inch, 0.9*inch, 0.75*inch]
+    col_w = [0.8*inch, 0.65*inch, 0.55*inch, 0.75*inch, 0.65*inch, 0.75*inch, 0.7*inch, 0.7*inch, 0.65*inch]
     t2 = Table(imp_rows, colWidths=col_w)
     t2.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (-1,0), colors.steelblue),
@@ -1567,12 +1577,13 @@ def portfolio_summary(horizon: int = 1, risk_free: float = 2.0):
         result.append({
             "name":                name,
             "allocations":         allocations,
-            "sharpe":              round(metrics["sharpe"],   4),
-            "pct_neg":             round(metrics["pct_neg"],  4),
-            "shorty":              round(metrics["shorty"],   4),
-            "expected_income_pct": round(inc_pct,             4),
-            "mean":                round(metrics["mean"],     4),
-            "std":                 round(metrics["std"],      4),
+            "sharpe":              round(metrics["sharpe"],        4),
+            "pct_neg":             round(metrics["pct_neg"],       4),
+            "shorty":              round(metrics["shorty"],        4),
+            "downside_kurt":       round(metrics["downside_kurt"], 4),
+            "expected_income_pct": round(inc_pct,                  4),
+            "mean":                round(metrics["mean"],          4),
+            "std":                 round(metrics["std"],           4),
         })
 
     # Also return classified notes for display
@@ -1620,12 +1631,13 @@ def portfolio_candidates(risk_free: float = 2.0):
         if note_type == "Income":
             new_income += alloc * note_yield_frac * 100
         return {
-            "sharpe":               round(m["sharpe"],  4),
-            "pct_neg":              round(m["pct_neg"], 4),
-            "shorty":               round(m["shorty"],  4),
-            "expected_income_pct":  round(new_income,   4),
-            "mean":                 round(m["mean"],    4),
-            "std":                  round(m["std"],     4),
+            "sharpe":               round(m["sharpe"],        4),
+            "pct_neg":              round(m["pct_neg"],       4),
+            "shorty":               round(m["shorty"],        4),
+            "downside_kurt":        round(m["downside_kurt"], 4),
+            "expected_income_pct":  round(new_income,         4),
+            "mean":                 round(m["mean"],          4),
+            "std":                  round(m["std"],           4),
         }
 
     result = []
@@ -1645,12 +1657,13 @@ def portfolio_candidates(risk_free: float = 2.0):
             base_ret  = asset_arr @ w_arr
             bm        = compute_metrics(base_ret, port_rfr, h)
             base_h[f"h{h}"] = {
-                "sharpe":               round(bm["sharpe"],  4),
-                "pct_neg":              round(bm["pct_neg"], 4),
-                "shorty":               round(bm["shorty"],  4),
-                "expected_income_pct":  round(base_income,   4),
-                "mean":                 round(bm["mean"],    4),
-                "std":                  round(bm["std"],     4),
+                "sharpe":               round(bm["sharpe"],        4),
+                "pct_neg":              round(bm["pct_neg"],       4),
+                "shorty":               round(bm["shorty"],        4),
+                "downside_kurt":        round(bm["downside_kurt"], 4),
+                "expected_income_pct":  round(base_income,         4),
+                "mean":                 round(bm["mean"],          4),
+                "std":                  round(bm["std"],           4),
             }
 
         allocations = sorted(

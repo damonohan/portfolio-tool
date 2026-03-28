@@ -14,6 +14,7 @@ interface BaseMetrics {
   sharpe: number;
   pct_neg: number;
   shorty: number;
+  downside_kurt: number;
   expected_income_pct: number;
 }
 
@@ -393,7 +394,8 @@ export default function ImprovementDetail({ index, onClose }: Props) {
                 <MetricCard label="Sharpe Ratio" before={base_metrics.sharpe} after={after_metrics.sharpe} format={fmt4} index={1} />
                 <MetricCard label="% Negative" before={base_metrics.pct_neg} after={after_metrics.pct_neg} format={fmt2} lowerIsBetter index={2} />
                 <MetricCard label="Shorty" before={base_metrics.shorty} after={after_metrics.shorty} format={fmt4} lowerIsBetter index={3} />
-                <MetricCard label="Exp. Income" before={base_metrics.expected_income_pct} after={after_metrics.expected_income_pct} format={fmtPct} index={4} />
+                <MetricCard label="D. Kurt." before={base_metrics.downside_kurt ?? 0} after={after_metrics.downside_kurt ?? 0} format={fmt4} lowerIsBetter index={4} />
+                <MetricCard label="Exp. Income" before={base_metrics.expected_income_pct} after={after_metrics.expected_income_pct} format={fmtPct} index={5} />
               </div>
             </div>
           </div>
