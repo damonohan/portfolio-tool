@@ -360,7 +360,8 @@ def _run_precalc(portfolio_name: str) -> None:
                 meta      = note_meta.get(note_id, {})
                 ext       = SESSION.get("note_suggestions", {}).get(note_id, {})
                 note_type = meta.get("type", "")
-                note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if note_type in NOTE_TYPES_INCOME else 0.0
+                is_income = meta.get("income_eligible", note_type in NOTE_TYPES_INCOME)
+                note_yield_frac = meta.get("yield_pct", 0.0) / 100.0 if is_income else 0.0
                 # Compute cumulative return for this ONE note column (~80KB)
                 note_ci = col_idx[note_col]
                 note_sub = raw[:, :h, note_ci].astype(np.float64)  # (n_sims, h)
@@ -384,7 +385,7 @@ def _run_precalc(portfolio_name: str) -> None:
                     m = compute_metrics(port_ret, risk_free, h)
 
                     new_income = sum(new_weights.get(a, 0.0) * asset_yields_frac.get(a, 0.0) for a in asset_cols)
-                    if note_type in NOTE_TYPES_INCOME:
+                    if is_income:
                         new_income += alloc_r * note_yield_frac
                     income_boost = new_income - base_inc
 
@@ -393,7 +394,7 @@ def _run_precalc(portfolio_name: str) -> None:
                         m["pct_neg"]       <= base_m["pct_neg"]       or
                         m["shorty"]        <= base_m["shorty"]        or
                         m["downside_kurt"] <= base_m["downside_kurt"] or
-                        (note_type in NOTE_TYPES_INCOME and income_boost > 0)
+                        (is_income and income_boost > 0)
                     )
                     if improves:
                         candidates.append({
@@ -679,9 +680,10 @@ async def upload_file(file: UploadFile = File(...)):
 # ── Note classification ───────────────────────────────────────────────────────
 
 class NoteClassification(BaseModel):
-    note_id:   str
-    note_type: str
-    yield_pct: float = 0.0
+    note_id:          str
+    note_type:        str
+    yield_pct:        float = 0.0
+    income_eligible:  bool  = False
 
 
 class ClassifyRequest(BaseModel):
@@ -701,8 +703,9 @@ def classify_notes(req: ClassifyRequest):
         if c.note_id not in SESSION["note_ids"]:
             raise HTTPException(400, f"Unknown note ID: {c.note_id}")
         meta[c.note_id] = {
-            "type":      c.note_type,
-            "yield_pct": c.yield_pct if c.note_type == "Income" else 0.0,
+            "type":             c.note_type,
+            "yield_pct":        c.yield_pct if c.income_eligible else 0.0,
+            "income_eligible":  c.income_eligible,
         }
     if set(meta.keys()) != set(SESSION["note_ids"]):
         raise HTTPException(400, "All notes must be classified.")
@@ -1625,10 +1628,10 @@ def portfolio_candidates(risk_free: float = 2.0):
     col_idx    = SESSION["sim_col_idx"]
     alloc_steps = [round(i * 0.05, 2) for i in range(1, 9)]  # 0.05 … 0.40
 
-    def _metrics(ret_vec, rfr, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon):
+    def _metrics(ret_vec, rfr, note_type, note_yield_frac, alloc, new_weights, a_cols, horizon, is_income=False):
         m          = compute_metrics(ret_vec, rfr, horizon)
         new_income = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in a_cols)
-        if note_type == "Income":
+        if is_income:
             new_income += alloc * note_yield_frac * 100
         return {
             "sharpe":               round(m["sharpe"],        4),
@@ -1678,9 +1681,10 @@ def portfolio_candidates(risk_free: float = 2.0):
             note_col = note_col_map.get(note_id)
             if note_col is None or note_col not in col_idx:
                 continue
-            note_type  = meta.get("type", "")
-            note_yield = meta.get("yield_pct", 0.0) / 100.0
-            n_ci       = col_idx[note_col]
+            note_type   = meta.get("type", "")
+            note_income = meta.get("income_eligible", note_type in NOTE_TYPES_INCOME)
+            note_yield  = meta.get("yield_pct", 0.0) / 100.0 if note_income else 0.0
+            n_ci        = col_idx[note_col]
 
             candidates = []
             for alloc in alloc_steps:
@@ -1694,11 +1698,12 @@ def portfolio_candidates(risk_free: float = 2.0):
                 })
 
             note_rows.append({
-                "note_id":    note_id,
-                "note_type":  note_type,
-                "yield_pct":  meta.get("yield_pct", 0.0),
-                "candidates": candidates,
+                "note_id":     note_id,
+                "note_type":   note_type,
+                "yield_pct":   meta.get("yield_pct", 0.0),
+                "candidates":  candidates,
                 "_note_yield": note_yield,
+                "_is_income":  note_income,
                 "_n_ci":       n_ci,
             })
 
@@ -1718,7 +1723,8 @@ def portfolio_candidates(risk_free: float = 2.0):
                     nw_vec  = np.array([cand["_nw"][a] for a in asset_cols])
                     ret     = asset_arr @ nw_vec + note_arr * alloc
                     cand[f"h{h}"] = _metrics(ret, port_rfr, nr["note_type"], nr["_note_yield"],
-                                             alloc, cand["_nw"], asset_cols, h)
+                                             alloc, cand["_nw"], asset_cols, h,
+                                             is_income=nr["_is_income"])
 
             del asset_arr
 

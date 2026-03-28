@@ -197,7 +197,9 @@ def find_improvements(
             continue
 
         # note yield_pct stored as % (e.g. 3.5); convert to fraction to match asset_yields units
-        note_yield_pct = (note_meta.get(note_col, {}).get("yield_pct", 0.0) / 100.0) if note_type == "Income" else 0.0
+        _meta = note_meta.get(note_col, {})
+        is_income = _meta.get("income_eligible", note_type in NOTE_TYPES_INCOME)
+        note_yield_pct = (_meta.get("yield_pct", 0.0) / 100.0) if is_income else 0.0
 
         # Assets belonging to allowed buckets
         bucket_assets = [a for a, b in asset_buckets.items() if b in allowed_buckets and a in base_weights]
@@ -233,7 +235,7 @@ def find_improvements(
 
             # Income %
             new_income_pct = sum(new_weights.get(a, 0.0) * asset_yields.get(a, 0.0) for a in asset_cols)
-            if note_type == "Income":
+            if is_income:
                 new_income_pct += alloc * note_yield_pct
             income_boost = new_income_pct - base_income
 
@@ -243,7 +245,7 @@ def find_improvements(
                 m["pct_neg"]       <= base_metrics["pct_neg"]       or
                 m["shorty"]        <= base_metrics["shorty"]        or
                 m["downside_kurt"] <= base_metrics["downside_kurt"] or
-                (note_type == "Income" and income_boost > 0)
+                (is_income and income_boost > 0)
             )
             if improves:
                 score = rank_score(base_metrics, m, goal)

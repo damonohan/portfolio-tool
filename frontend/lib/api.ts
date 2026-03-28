@@ -41,7 +41,7 @@ export const api = {
       updated_at: string;
     }[]>("/files"),
 
-  classifyNotes: (classifications: { note_id: string; note_type: string; yield_pct: number }[]) =>
+  classifyNotes: (classifications: { note_id: string; note_type: string; yield_pct: number; income_eligible: boolean }[]) =>
     req<{ ok: boolean }>("/classify-notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -160,6 +160,7 @@ export const api = {
 export interface NoteMeta {
   type: string;
   yield_pct: number;
+  income_eligible?: boolean;
   underlier: string;
   protection_type: string;
   protection_pct: number;
@@ -296,8 +297,8 @@ export interface ImprovementDetail {
   alloc_pct: number;
   base_weights: Record<string, number>;
   after_weights: Record<string, number>;
-  base_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
-  after_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; expected_income_pct: number };
+  base_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
+  after_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
   alloc_curve: { alloc_pct: number; mean_return: number }[];
   histogram: PlotlyData;
 }

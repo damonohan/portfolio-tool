@@ -6,10 +6,11 @@ import { api, NoteMeta } from "@/lib/api";
 const NOTE_TYPES = ["Income", "Growth", "Digital", "Absolute", "MLCD", "PPN", "Snowball"] as const;
 
 interface NoteRow {
-  note_id:       string;
-  note_type:     string;
-  yield_pct:     number;
-  auto_detected: boolean; // came from Tracking/Notes sheet, not yet manually changed
+  note_id:         string;
+  note_type:       string;
+  yield_pct:       number;
+  income_eligible: boolean;
+  auto_detected:   boolean; // came from Tracking/Notes sheet, not yet manually changed
 }
 
 interface Props {
@@ -22,11 +23,13 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
   const [rows, setRows] = useState<NoteRow[]>(
     noteIds.map((id) => {
       const s = noteSuggestions[id];
+      const t = s?.type ?? "";
       return {
-        note_id:       id,
-        note_type:     s?.type     ?? "",
-        yield_pct:     s?.yield_pct ?? 0,
-        auto_detected: !!(s?.type),
+        note_id:         id,
+        note_type:       t,
+        yield_pct:       s?.yield_pct ?? 0,
+        income_eligible: s?.income_eligible ?? t === "Income",
+        auto_detected:   !!(s?.type),
       };
     })
   );
@@ -57,34 +60,52 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
 
       if (Object.keys(meta).length > 0) {
         // Previously confirmed classifications take priority
-        setRows(noteIds.map((id) => ({
-          note_id:       id,
-          note_type:     meta[id]?.type      ?? "",
-          yield_pct:     meta[id]?.yield_pct ?? 0,
-          auto_detected: false,
-        })));
+        setRows(noteIds.map((id) => {
+          const m = meta[id];
+          const t = m?.type ?? "";
+          return {
+            note_id:         id,
+            note_type:       t,
+            yield_pct:       m?.yield_pct ?? 0,
+            income_eligible: m?.income_eligible ?? t === "Income",
+            auto_detected:   false,
+          };
+        }));
         setSaved(true);
       } else if (Object.keys(suggestions).length > 0) {
         // Auto-suggestions from Tracking sheet (not yet saved by user)
         setRows(noteIds.map((id) => {
           const s = suggestions[id];
+          const t = s?.type ?? "";
           return {
-            note_id:       id,
-            note_type:     s?.type      ?? "",
-            yield_pct:     s?.yield_pct ?? 0,
-            auto_detected: !!(s?.type),
+            note_id:         id,
+            note_type:       t,
+            yield_pct:       s?.yield_pct ?? 0,
+            income_eligible: s?.income_eligible ?? t === "Income",
+            auto_detected:   !!(s?.type),
           };
         }));
       }
     }).catch(() => {});
   }, [noteIds]);
 
-  const update = (idx: number, field: keyof NoteRow, value: string | number) => {
+  const update = (idx: number, field: keyof NoteRow, value: string | number | boolean) => {
     setSaved(false);
     setRows((prev) =>
-      prev.map((r, i) =>
-        i === idx ? { ...r, [field]: value, auto_detected: false } : r
-      )
+      prev.map((r, i) => {
+        if (i !== idx) return r;
+        const updated = { ...r, [field]: value, auto_detected: false };
+        // When type changes, auto-set income_eligible: Income → true, others → false
+        if (field === "note_type") {
+          updated.income_eligible = value === "Income";
+          if (!updated.income_eligible) updated.yield_pct = 0;
+        }
+        // When income_eligible unchecked, zero out yield
+        if (field === "income_eligible" && !value) {
+          updated.yield_pct = 0;
+        }
+        return updated;
+      })
     );
   };
 
@@ -104,10 +125,10 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
       return;
     }
     const incomeWithoutYield = rows.filter(
-      (r) => r.note_type === "Income" && (!r.yield_pct || r.yield_pct <= 0)
+      (r) => r.income_eligible && (!r.yield_pct || r.yield_pct <= 0)
     );
     if (incomeWithoutYield.length > 0) {
-      setError(`Income notes need a yield > 0: ${incomeWithoutYield.map((r) => r.note_id).join(", ")}`);
+      setError(`Income-eligible notes need a yield > 0: ${incomeWithoutYield.map((r) => r.note_id).join(", ")}`);
       return;
     }
     setLoading(true);
@@ -151,8 +172,11 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
                 <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500">
                   Type
                 </th>
+                <th className="px-3 py-3 text-center font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
+                  Income?
+                </th>
                 <th className="px-4 py-3 text-left font-semibold bg-slate-50 border-b border-slate-200 text-slate-500 whitespace-nowrap">
-                  Expected Yield (%) <span className="text-slate-400 font-normal">— Income only</span>
+                  Expected Yield (%)
                 </th>
                 {/* Extended metadata columns — shown only when Notes sheet data is present */}
                 {hasUnderlier && (
@@ -208,8 +232,16 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
                         ))}
                       </select>
                     </td>
+                    <td className="px-3 py-3 border-b border-slate-100 text-center">
+                      <input
+                        type="checkbox"
+                        checked={row.income_eligible}
+                        onChange={(e) => update(idx, "income_eligible", e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </td>
                     <td className="px-4 py-3 border-b border-slate-100">
-                      {row.note_type === "Income" ? (
+                      {row.income_eligible ? (
                         <input
                           type="number"
                           min={0}
@@ -223,7 +255,7 @@ export default function Screen2ClassifyNotes({ noteIds, noteSuggestions, onConti
                           }`}
                         />
                       ) : (
-                        <span className="text-slate-400">N/A</span>
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
                     {/* Extended metadata cells (read-only) */}
