@@ -12,6 +12,7 @@ interface BaseMetrics {
   sharpe: number;
   pct_neg: number;
   shorty: number;
+  downside_kurt: number;
   expected_income_pct: number;
 }
 
