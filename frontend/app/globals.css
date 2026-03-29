@@ -1,7 +1,89 @@
 @import "tailwindcss";
 
+:root {
+  --bg-primary: #0f1923;
+  --bg-card: #162332;
+  --bg-chart: #f8f9fb;
+  --border: #1e3a52;
+  --text-primary: #e8edf2;
+  --text-secondary: #8899aa;
+  --text-muted: #5a6d7e;
+  --halo-teal: #7EBEC5;
+  --halo-cyan: #00B7CD;
+  --halo-deep: #315b7c;
+  --halo-navy: #1a3a5c;
+  --accent-gold: #ffd54f;
+  --accent-green: #66bb6a;
+  --accent-red: #ef5350;
+  --accent-blue: #4fc3f7;
+}
+
+* { box-sizing: border-box; }
+
 body {
-  background: #0f1629;
-  color: #f1f5f9;
-  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Shared utility classes for the Halo theme */
+.halo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--accent-gold);
+  margin-bottom: 14px;
+}
+
+.insight-banner {
+  background: linear-gradient(135deg, rgba(79,195,247,0.08), rgba(38,198,218,0.08));
+  border: 1px solid rgba(79,195,247,0.2);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.insight-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.insight-text strong {
+  color: var(--accent-blue);
+}
+
+.dl-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.dl-btn:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.delta-positive {
+  background: rgba(0,183,205,0.12);
+  color: #00838f;
+}
+
+.delta-negative {
+  background: rgba(239,83,80,0.12);
+  color: #c62828;
 }

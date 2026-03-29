@@ -12,9 +12,11 @@
     "@nivo/bar": "^0.99.0",
     "@nivo/core": "^0.99.0",
     "@types/react-plotly.js": "^2.6.4",
+    "chart.js": "^4.5.1",
     "next": "16.1.6",
     "plotly.js": "^3.4.0",
     "react": "19.2.3",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "19.2.3",
     "react-plotly.js": "^2.6.0"
   },

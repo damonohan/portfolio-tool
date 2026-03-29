@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { PrecalcMetrics, PrecalcCandidate, PortfolioPrecalc, RankedCandidate, FrameworkConfig } from "@/lib/api";
-import type { Framework } from "@/app/page";
+import type { Framework } from "@/lib/AppContext";
 
 const OUTLOOKS      = ["Bearish", "Neutral", "Bullish"] as const;
 const RISK_LEVELS   = ["Conservative", "Moderate", "Aggressive"] as const;
