@@ -197,48 +197,94 @@ export default function Screen4Analysis({
     <div className="w-full space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">Framework Selection</h2>
-          <p className="text-sm text-slate-500">
-            Results update instantly as you change selections below.
-          </p>
+          <h2 className="text-xl font-bold text-slate-800 mb-1">Analysis Setup</h2>
+          <p className="text-sm text-slate-500">Select a portfolio, configure your framework, and set note allocation limits. Results update instantly.</p>
         </div>
 
-        <RadioGroup label="Market Outlook" options={OUTLOOKS} value={outlook} onChange={setOutlook} />
-        <RadioGroup label="Risk Tolerance" options={RISK_LEVELS} value={risk} onChange={setRisk} />
-        <RadioGroup label="Portfolio Goal" options={GOALS} value={goal} onChange={setGoal} />
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Simulation Horizon</p>
-            <select
-              value={horizon}
-              onChange={(e) => setHorizon(Number(e.target.value))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {HORIZONS.map((h) => (
-                <option key={h} value={h}>{h} {h === 1 ? "Year" : "Years"}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Starting Portfolio</p>
-            <select
-              value={portName}
-              onChange={(e) => setPortName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {portfolioNames.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Allocation range sliders */}
+        {/* ── Step 1: Select Base Portfolio ───────────────────────────────── */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-slate-600">Note Allocation Range</p>
+          <p className="text-sm font-semibold text-slate-700 mb-1">Step 1 — Select Base Portfolio</p>
+          <p className="text-xs text-slate-400 mb-3">Metrics shown for the selected horizon. Choose one portfolio to analyse.</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            {portfolioNames.map((name) => {
+              const m = precalcData[name]?._base?.[String(horizon)];
+              const selected = portName === name;
+              return (
+                <button
+                  key={name}
+                  onClick={() => setPortName(name)}
+                  className={`text-left rounded-xl border-2 p-3 transition-colors ${
+                    selected
+                      ? "border-blue-600 bg-blue-50"
+                      : "border-slate-200 bg-white hover:border-blue-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${selected ? "border-blue-600 bg-blue-600" : "border-slate-300"}`}>
+                      {selected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    </div>
+                    <span className={`text-xs font-semibold leading-tight ${selected ? "text-blue-800" : "text-slate-700"}`}>{name}</span>
+                  </div>
+                  {m ? (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">Exp. Return</div>
+                        <div className={`text-sm font-bold tabular-nums ${selected ? "text-blue-700" : "text-slate-800"}`}>{(m.mean * 100).toFixed(2)}%</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">Std Dev</div>
+                        <div className="text-sm font-bold tabular-nums text-slate-700">{(m.std * 100).toFixed(2)}%</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">Sharpe</div>
+                        <div className="text-xs font-semibold tabular-nums text-slate-600">{m.sharpe.toFixed(3)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">% Neg</div>
+                        <div className="text-xs font-semibold tabular-nums text-slate-600">{m.pct_neg.toFixed(1)}%</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 italic">No data</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Step 2: Framework Selection ──────────────────────────────────── */}
+        <div>
+          <p className="text-sm font-semibold text-slate-700 mb-3">Step 2 — Framework &amp; Horizon</p>
+          <div className="space-y-4">
+            <RadioGroup label="Market Outlook"   options={OUTLOOKS}    value={outlook} onChange={setOutlook} />
+            <RadioGroup label="Risk Tolerance"   options={RISK_LEVELS} value={risk}    onChange={setRisk} />
+            <RadioGroup label="Portfolio Goal"   options={GOALS}       value={goal}    onChange={setGoal} />
+            <div>
+              <p className="text-sm font-semibold text-slate-600 mb-2">Simulation Horizon</p>
+              <div className="flex gap-2">
+                {HORIZONS.map((h) => (
+                  <button
+                    key={h}
+                    onClick={() => setHorizon(h)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      horizon === h
+                        ? "bg-blue-700 text-white border-blue-700"
+                        : "bg-white text-slate-700 border-slate-300 hover:border-blue-400"
+                    }`}
+                  >
+                    {h} {h === 1 ? "Year" : "Years"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Step 3: Note Allocation Range ────────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-slate-700">Step 3 — Note Allocation Range</p>
             <span className="text-sm font-semibold text-blue-700 tabular-nums">{minAlloc}% – {maxAlloc}%</span>
           </div>
           <div className="grid grid-cols-2 gap-4">
