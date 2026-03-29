@@ -18,6 +18,7 @@ export default function HistogramsSummaryPage() {
   const [improvements, setImprovements] = useState<Improvement[]>([]);
   const [histData, setHistData] = useState<(HistBins | null)[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const fetchedRef = useRef(false);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function HistogramsSummaryPage() {
 
     const run = async () => {
       setLoading(true);
+      setError("");
       try {
         // Ensure improvements are computed server-side
         const result = await api.findImprovements({
@@ -42,7 +44,10 @@ export default function HistogramsSummaryPage() {
         const histPromises = result.improvements.map((_, i) => api.getHistogram(i).catch(() => null));
         const hists = await Promise.all(histPromises);
         setHistData(hists.map((h) => h ? plotlyToHistBins(h) : null));
-      } catch { /* non-fatal */ }
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load improvements");
+        fetchedRef.current = false; // allow retry
+      }
       finally { setLoading(false); }
     };
     run();
@@ -50,6 +55,19 @@ export default function HistogramsSummaryPage() {
 
   if (!sessionLoaded) {
     return <div style={{ padding: 80, textAlign: "center", color: "var(--text-muted)" }}>Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div style={{ maxWidth: 600, margin: "80px auto", textAlign: "center" }}>
+        <div className="halo-card" style={{ padding: 40 }}>
+          <p style={{ color: "var(--accent-red)", fontSize: 15, marginBottom: 16 }}>{error}</p>
+          <Link href="/analysis" style={{ color: "var(--halo-cyan)", textDecoration: "none", fontWeight: 600 }}>
+            ← Back to Analysis
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (ranked.length === 0 && !loading) {
@@ -214,15 +232,15 @@ export default function HistogramsSummaryPage() {
                   })}
                 </div>
 
-                <button style={{
-                  marginTop: 12, width: "100%", padding: 8,
+                <span style={{
+                  display: "block", marginTop: 12, width: "100%", padding: 8,
                   border: "1px solid rgba(0,183,205,0.3)",
                   background: "rgba(0,183,205,0.06)",
                   borderRadius: 8, color: "var(--halo-cyan)",
-                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  fontSize: 12, fontWeight: 600, textAlign: "center",
                 }}>
                   View Full Detail →
-                </button>
+                </span>
               </Link>
             );
           })}
