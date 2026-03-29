@@ -55,13 +55,15 @@ export default function Screen4Analysis({
   onContinue,
   onFrontier,
 }: Props) {
-  const [outlook,  setOutlook]  = useState<string>(initialFramework.outlook  || "Neutral");
-  const [risk,     setRisk]     = useState<string>(initialFramework.risk_tolerance || "Moderate");
-  const [goal,     setGoal]     = useState<string>(initialFramework.goal     || "Balanced");
-  const [horizon,  setHorizon]  = useState<number>(initialFramework.horizon  || 1);
-  const [portName, setPortName] = useState<string>(
+  const [outlook,   setOutlook]  = useState<string>(initialFramework.outlook  || "Neutral");
+  const [risk,      setRisk]     = useState<string>(initialFramework.risk_tolerance || "Moderate");
+  const [goal,      setGoal]     = useState<string>(initialFramework.goal     || "Balanced");
+  const [horizon,   setHorizon]  = useState<number>(initialFramework.horizon  || 1);
+  const [portName,  setPortName] = useState<string>(
     initialFramework.portfolio_name || portfolioNames[0] || ""
   );
+  const [minAlloc,  setMinAlloc] = useState<number>(5);   // % e.g. 5 = 5%
+  const [maxAlloc,  setMaxAlloc] = useState<number>(30);  // % e.g. 30 = 30%
 
   useEffect(() => {
     if (portfolioNames.length > 0 && !portName) setPortName(portfolioNames[0]);
@@ -93,17 +95,20 @@ export default function Screen4Analysis({
                                : new Set([...NOTE_TYPES_GROWTH, ...NOTE_TYPES_INCOME]);
 
     // Filter + score
+    const minAllocFrac = minAlloc / 100;
+    const maxAllocFrac = maxAlloc / 100;
     const scored: RankedCandidate[] = [];
     for (const c of candidates) {
+      // Always apply the user's allocation range slider (overrides cell max)
+      if (c.alloc_pct < minAllocFrac - 1e-9) continue;
+      if (c.alloc_pct > maxAllocFrac + 1e-9) continue;
       if (cell) {
-        if (c.alloc_pct > cell.max_alloc_pct / 100 + 1e-9) continue;
         if (cell.allowed_types.length > 0 && !cell.allowed_types.includes(c.note_type)) continue;
         if (cell.allowed_underlyings.length > 0 && !cell.allowed_underlyings.includes(c.underlier)) continue;
         if (cell.allowed_protection_types.length > 0 && !cell.allowed_protection_types.includes(c.protection_type)) continue;
         if (c.protection_pct < cell.min_protection_pct) continue;
         if (c.protection_pct > cell.max_protection_pct) continue;
       } else {
-        if (c.alloc_pct > riskMaxFallback + 1e-9) continue;
         if (!allowedTypesFallback.has(c.note_type)) continue;
       }
       const score = rankScore(base, c.metrics, goal);
@@ -135,7 +140,7 @@ export default function Screen4Analysis({
     }
 
     return { baseMetrics: base, ranked: top5 };
-  }, [portName, outlook, risk, goal, horizon, precalcData, frameworkConfig]);
+  }, [portName, outlook, risk, goal, horizon, minAlloc, maxAlloc, precalcData, frameworkConfig]);
 
   const RadioGroup = ({
     label, options, value, onChange,
@@ -227,6 +232,56 @@ export default function Screen4Analysis({
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* Allocation range sliders */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-slate-600">Note Allocation Range</p>
+            <span className="text-sm font-semibold text-blue-700 tabular-nums">{minAlloc}% – {maxAlloc}%</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                <span>Min Allocation</span>
+                <span className="font-semibold text-slate-700">{minAlloc}%</span>
+              </div>
+              <input
+                type="range"
+                min={5} max={35} step={5}
+                value={minAlloc}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setMinAlloc(v);
+                  if (v >= maxAlloc) setMaxAlloc(Math.min(v + 5, 40));
+                }}
+                className="w-full accent-blue-600"
+              />
+              <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                <span>5%</span><span>35%</span>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                <span>Max Allocation</span>
+                <span className="font-semibold text-slate-700">{maxAlloc}%</span>
+              </div>
+              <input
+                type="range"
+                min={10} max={40} step={5}
+                value={maxAlloc}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setMaxAlloc(v);
+                  if (v <= minAlloc) setMinAlloc(Math.max(v - 5, 5));
+                }}
+                className="w-full accent-blue-600"
+              />
+              <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                <span>10%</span><span>40%</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
