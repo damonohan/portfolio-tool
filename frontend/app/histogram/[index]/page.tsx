@@ -8,11 +8,11 @@ import { api, ImprovementDetail as DetailData, Improvement } from "@/lib/api";
 import { plotlyToHistBins, smooth } from "@/lib/chartUtils";
 import {
   Chart as ChartJS,
-  CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip, Legend,
+  CategoryScale, LinearScale, BarController, LineController, BarElement, LineElement, PointElement, Filler, Tooltip, Legend,
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarController, LineController, BarElement, LineElement, PointElement, Filler, Tooltip, Legend);
 
 function useSlotNumber(target: number, delay: number, duration = 800) {
   const [display, setDisplay] = useState(0);

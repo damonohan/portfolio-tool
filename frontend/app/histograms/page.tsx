@@ -7,11 +7,11 @@ import { api, Improvement } from "@/lib/api";
 import { HistBins, plotlyToHistBins, smooth } from "@/lib/chartUtils";
 import {
   Chart as ChartJS,
-  CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip,
+  CategoryScale, LinearScale, BarController, LineController, BarElement, LineElement, PointElement, Filler, Tooltip,
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip);
+ChartJS.register(CategoryScale, LinearScale, BarController, LineController, BarElement, LineElement, PointElement, Filler, Tooltip);
 
 export default function HistogramsSummaryPage() {
   const { framework, sessionLoaded, setImprovementsComputed } = useAppContext();
