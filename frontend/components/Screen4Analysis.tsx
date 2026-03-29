@@ -287,48 +287,40 @@ export default function Screen4Analysis({
             <p className="text-sm font-semibold text-slate-700">Step 3 — Note Allocation Range</p>
             <span className="text-sm font-semibold text-blue-700 tabular-nums">{minAlloc}% – {maxAlloc}%</span>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex justify-between text-xs text-slate-500 mb-1">
-                <span>Min Allocation</span>
-                <span className="font-semibold text-slate-700">{minAlloc}%</span>
-              </div>
-              <input
-                type="range"
-                min={5} max={35} step={5}
-                value={minAlloc}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setMinAlloc(v);
-                  if (v >= maxAlloc) setMaxAlloc(Math.min(v + 5, 40));
-                }}
-                className="w-full accent-blue-600"
-              />
-              <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                <span>5%</span><span>35%</span>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs text-slate-500 mb-1">
-                <span>Max Allocation</span>
-                <span className="font-semibold text-slate-700">{maxAlloc}%</span>
-              </div>
-              <input
-                type="range"
-                min={10} max={40} step={5}
-                value={maxAlloc}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setMaxAlloc(v);
-                  if (v <= minAlloc) setMinAlloc(Math.max(v - 5, 5));
-                }}
-                className="w-full accent-blue-600"
-              />
-              <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                <span>10%</span><span>40%</span>
-              </div>
-            </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {[5, 10, 15, 20, 25, 30, 35, 40].map((s) => {
+              const isMin     = s === minAlloc;
+              const isMax     = s === maxAlloc;
+              const inRange   = s > minAlloc && s < maxAlloc;
+              const isEndpoint = isMin || isMax;
+              return (
+                <button
+                  key={s}
+                  onClick={() => {
+                    if (s <= minAlloc) { setMinAlloc(s); }
+                    else if (s >= maxAlloc) { setMaxAlloc(s); }
+                    else {
+                      // Within range — snap to nearest endpoint
+                      if (s - minAlloc <= maxAlloc - s) setMinAlloc(s);
+                      else setMaxAlloc(s);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                    isEndpoint
+                      ? "bg-blue-700 text-white border-blue-700"
+                      : inRange
+                      ? "bg-blue-100 text-blue-700 border-blue-300"
+                      : "bg-white text-slate-400 border-slate-200 hover:border-slate-400 hover:text-slate-600"
+                  }`}
+                >
+                  {s}%
+                  {isMin && <span className="ml-1 text-[10px] opacity-70">min</span>}
+                  {isMax && <span className="ml-1 text-[10px] opacity-70">max</span>}
+                </button>
+              );
+            })}
           </div>
+          <p className="text-xs text-slate-400 mt-2">Click a step to set the min or max. Steps between are highlighted in blue.</p>
         </div>
       </div>
 
