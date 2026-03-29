@@ -34,34 +34,44 @@ export default function Screen3PortfolioBuilder({
   const [assetMeta, setAssetMeta] = useState<AssetMeta[]>(
     assetCols.map((a) => ({ asset: a, yield_pct: 0, bucket: "" }))
   );
-  const [metaSaved, setMetaSaved] = useState(false);
-  const [metaError, setMetaError] = useState("");
+  const [metaSaved, setMetaSaved]   = useState(false);
+  const [metaError, setMetaError]   = useState("");
 
   // Portfolio form
-  const [portName, setPortName] = useState("");
-  const [riskFree, setRiskFree] = useState(2.0);
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
-  const [weights, setWeights] = useState<Record<string, number>>({});
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [portError, setPortError] = useState("");
-  const [portSuccess, setPortSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [portName,        setPortName]        = useState("");
+  const [riskFree,        setRiskFree]        = useState(2.0);
+  const [selectedAssets,  setSelectedAssets]  = useState<string[]>([]);
+  const [weights,         setWeights]         = useState<Record<string, number>>({});
+  const [portfolios,      setPortfolios]      = useState<Portfolio[]>([]);
+  const [portfolioOrder,  setPortfolioOrder]  = useState<string[]>([]);
+  const [editingPortfolio,setEditingPortfolio]= useState<string | null>(null); // original name when editing
+  const [portError,       setPortError]       = useState("");
+  const [portSuccess,     setPortSuccess]     = useState("");
+  const [loading,         setLoading]         = useState(false);
+  const [fingerprint,     setFingerprint]     = useState<string>("");
 
-  // Income notes for reference
   const incomeNotes = noteIds.filter((id) => noteMeta[id]?.type === "Income");
+
+  // ── Merge fetched portfolios with stored sort order ───────────────────────
+  const applyOrder = (ps: Portfolio[], order: string[]) => {
+    const byName = Object.fromEntries(ps.map((p) => [p.name, p]));
+    const ordered = order.filter((n) => byName[n]).map((n) => byName[n]);
+    const rest    = ps.filter((p) => !order.includes(p.name));
+    return [...ordered, ...rest];
+  };
 
   useEffect(() => {
     api.getPortfolios().then((ps) => {
+      if (ps.length > 0 && ps[0].risk_free != null) setRiskFree(ps[0].risk_free);
       setPortfolios(ps);
-      // Seed risk_free from the first saved portfolio (if any)
-      if (ps.length > 0 && ps[0].risk_free != null) {
-        setRiskFree(ps[0].risk_free);
-      }
+      setPortfolioOrder(ps.map((p) => p.name));
     }).catch(() => {});
-    // Pre-populate yields and buckets from saved session state
+
     api.sessionState().then((state) => {
+      const fp      = state.fingerprint ?? "";
       const yields  = state.asset_yields  ?? {};
       const buckets = state.asset_buckets ?? {};
+      setFingerprint(fp);
       if (Object.keys(buckets).length > 0) {
         setAssetMeta(assetCols.map((a) => ({
           asset:     a,
@@ -70,9 +80,66 @@ export default function Screen3PortfolioBuilder({
         })));
         setMetaSaved(true);
       }
+      // Restore saved order from localStorage
+      if (fp) {
+        try {
+          const stored = localStorage.getItem(`portfolioOrder_${fp}`);
+          if (stored) {
+            const order: string[] = JSON.parse(stored);
+            setPortfolioOrder(order);
+            api.getPortfolios().then((ps) => setPortfolios(applyOrder(ps, order))).catch(() => {});
+          }
+        } catch { /* ignore */ }
+      }
     }).catch(() => {});
   }, [assetCols]);
 
+  const persistOrder = (order: string[]) => {
+    setPortfolioOrder(order);
+    if (fingerprint) {
+      try { localStorage.setItem(`portfolioOrder_${fingerprint}`, JSON.stringify(order)); }
+      catch { /* ignore */ }
+    }
+  };
+
+  const reorder = (name: string, dir: -1 | 1) => {
+    setPortfolios((prev) => {
+      const idx = prev.findIndex((p) => p.name === name);
+      if (idx < 0) return prev;
+      const next = dir === -1 ? idx - 1 : idx + 1;
+      if (next < 0 || next >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      persistOrder(arr.map((p) => p.name));
+      return arr;
+    });
+  };
+
+  // ── Load a portfolio into the form for editing ────────────────────────────
+  const startEdit = (p: Portfolio) => {
+    setEditingPortfolio(p.name);
+    setPortName(p.name);
+    setRiskFree(p.risk_free ?? 2.0);
+    const nonZero = Object.entries(p.weights)
+      .filter(([, w]) => w > 0)
+      .reduce<Record<string, number>>((acc, [k, v]) => { acc[k] = v; return acc; }, {});
+    setSelectedAssets(Object.keys(nonZero));
+    setWeights(nonZero);
+    setPortError("");
+    setPortSuccess("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingPortfolio(null);
+    setPortName("");
+    setSelectedAssets([]);
+    setWeights({});
+    setPortError("");
+    setPortSuccess("");
+  };
+
+  // ── Asset metadata ────────────────────────────────────────────────────────
   const updateMeta = (idx: number, field: keyof AssetMeta, value: string | number) => {
     setMetaSaved(false);
     setAssetMeta((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
@@ -96,10 +163,10 @@ export default function Screen3PortfolioBuilder({
     }
   };
 
+  // ── Portfolio form ────────────────────────────────────────────────────────
   const toggleAsset = (a: string) => {
     setSelectedAssets((prev) => {
       const next = prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a];
-      // Reset weight for added; remove for deselected
       setWeights((w) => {
         const nw = { ...w };
         if (prev.includes(a)) delete nw[a];
@@ -128,13 +195,34 @@ export default function Screen3PortfolioBuilder({
     setLoading(true);
     setPortError("");
     try {
-      await api.savePortfolio(portName.trim(), weights, riskFree);
-      setPortSuccess(`Portfolio "${portName.trim()}" saved.`);
+      const newName = portName.trim();
+      // If renaming (editing and name changed), delete the old entry first
+      if (editingPortfolio && editingPortfolio !== newName) {
+        await api.deletePortfolio(editingPortfolio);
+      }
+      await api.savePortfolio(newName, weights, riskFree);
+      setPortSuccess(
+        editingPortfolio
+          ? `Portfolio "${newName}" updated.`
+          : `Portfolio "${newName}" saved.`
+      );
+      setEditingPortfolio(null);
       setPortName("");
       setSelectedAssets([]);
       setWeights({});
       const ps = await api.getPortfolios();
-      setPortfolios(ps);
+      // Merge new list with current display order, appending new entries
+      setPortfolios((prev) => {
+        const currentOrder = prev.map((p) =>
+          editingPortfolio && p.name === editingPortfolio ? newName : p.name
+        );
+        const newOrder = [
+          ...currentOrder,
+          ...ps.map((p) => p.name).filter((n) => !currentOrder.includes(n)),
+        ];
+        persistOrder(newOrder);
+        return applyOrder(ps, newOrder);
+      });
     } catch (e: unknown) {
       setPortError(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -145,7 +233,12 @@ export default function Screen3PortfolioBuilder({
   const deletePortfolio = async (name: string) => {
     try {
       await api.deletePortfolio(name);
-      setPortfolios((ps) => ps.filter((p) => p.name !== name));
+      setPortfolios((prev) => {
+        const next = prev.filter((p) => p.name !== name);
+        persistOrder(next.map((p) => p.name));
+        return next;
+      });
+      if (editingPortfolio === name) cancelEdit();
     } catch (e: unknown) {
       setPortError(e instanceof Error ? e.message : "Delete failed");
     }
@@ -246,7 +339,7 @@ export default function Screen3PortfolioBuilder({
           disabled={loading}
           className="mt-4 bg-slate-700 hover:bg-slate-800 text-white font-semibold py-2 px-5 rounded-lg transition-colors disabled:opacity-50 text-sm"
         >
-          Save Yields & Buckets
+          Save Yields &amp; Buckets
         </button>
       </div>
 
@@ -254,31 +347,66 @@ export default function Screen3PortfolioBuilder({
       <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-6 ${!metaSaved ? "opacity-50 pointer-events-none" : ""}`}>
         <h2 className="text-lg font-bold text-slate-800 mb-1">C — Portfolio Creation</h2>
         {!metaSaved && (
-          <p className="text-sm text-orange-600 mb-4">Save yields & buckets above before creating portfolios.</p>
+          <p className="text-sm text-orange-600 mb-4">Save yields &amp; buckets above before creating portfolios.</p>
         )}
         <p className="text-sm text-slate-500 mb-4">Build and save portfolios using asset classes only.</p>
 
         <div className="grid grid-cols-3 gap-6">
-          {/* Sidebar: saved portfolios */}
+          {/* Sidebar: saved portfolios with reorder + edit */}
           <div className="col-span-1">
-            <p className="text-sm font-semibold text-slate-600 mb-2">Saved Portfolios</p>
+            <p className="text-sm font-semibold text-slate-600 mb-2">
+              Saved Portfolios
+              <span className="ml-1 text-xs font-normal text-slate-400">(drag ↕ to reorder)</span>
+            </p>
             {portfolios.length === 0 ? (
               <p className="text-xs text-slate-400 italic">None yet.</p>
             ) : (
               <ul className="space-y-2">
-                {portfolios.map((p) => (
-                  <li key={p.name} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">{p.name}</p>
+                {portfolios.map((p, idx) => (
+                  <li
+                    key={p.name}
+                    className={`border rounded-lg px-3 py-2 transition-colors ${
+                      editingPortfolio === p.name
+                        ? "border-blue-400 bg-blue-50"
+                        : "bg-slate-50 border-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-start gap-1">
+                      {/* Reorder arrows */}
+                      <div className="flex flex-col gap-0.5 pt-0.5 shrink-0">
+                        <button
+                          onClick={() => reorder(p.name, -1)}
+                          disabled={idx === 0}
+                          className="text-slate-300 hover:text-slate-600 disabled:opacity-20 text-xs leading-none"
+                          title="Move up"
+                        >▲</button>
+                        <button
+                          onClick={() => reorder(p.name, 1)}
+                          disabled={idx === portfolios.length - 1}
+                          className="text-slate-300 hover:text-slate-600 disabled:opacity-20 text-xs leading-none"
+                          title="Move down"
+                        >▼</button>
+                      </div>
+
+                      {/* Name + meta */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
                         <p className="text-xs text-slate-500">{p.asset_count} assets · RFR: {p.risk_free ?? 2.0}%</p>
                       </div>
-                      <button
-                        onClick={() => deletePortfolio(p.name)}
-                        className="text-xs text-red-500 hover:text-red-700"
-                      >
-                        ✕
-                      </button>
+
+                      {/* Edit + delete */}
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          onClick={() => startEdit(p)}
+                          title="Edit portfolio"
+                          className="text-xs text-blue-500 hover:text-blue-700 px-1"
+                        >✎</button>
+                        <button
+                          onClick={() => deletePortfolio(p.name)}
+                          title="Delete portfolio"
+                          className="text-xs text-red-400 hover:text-red-600 px-1"
+                        >✕</button>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -288,9 +416,19 @@ export default function Screen3PortfolioBuilder({
 
           {/* Portfolio form */}
           <div className="col-span-2 space-y-4">
+            {/* Edit banner */}
+            {editingPortfolio && (
+              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                <span className="text-sm font-semibold text-blue-800">Editing: {editingPortfolio}</span>
+                <button onClick={cancelEdit} className="text-xs text-blue-500 hover:text-blue-700">Cancel</button>
+              </div>
+            )}
+
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="text-sm font-medium text-slate-600 mb-1 block">Portfolio Name</label>
+                <label className="text-sm font-medium text-slate-600 mb-1 block">
+                  Portfolio Name {editingPortfolio && <span className="text-xs font-normal text-slate-400">(rename by changing this)</span>}
+                </label>
                 <input
                   type="text"
                   value={portName}
@@ -314,7 +452,7 @@ export default function Screen3PortfolioBuilder({
             </div>
 
             <div>
-              <p className="text-sm font-medium text-slate-600 mb-2">Select Assets & Assign Weights</p>
+              <p className="text-sm font-medium text-slate-600 mb-2">Select Assets &amp; Assign Weights</p>
               <div className="space-y-2">
                 {assetCols.map((a) => {
                   const sel = selectedAssets.includes(a);
@@ -376,7 +514,7 @@ export default function Screen3PortfolioBuilder({
                 className="bg-slate-700 hover:bg-slate-800 text-white font-semibold py-2 px-5 rounded-lg transition-colors disabled:opacity-50 text-sm"
                 title={!metaSaved ? "Save yields & buckets first" : undefined}
               >
-                {loading ? "Saving…" : "Save Portfolio"}
+                {loading ? "Saving…" : editingPortfolio ? "Update Portfolio" : "Save Portfolio"}
               </button>
               {portfolios.length > 0 && metaSaved && (
                 <button
@@ -388,7 +526,7 @@ export default function Screen3PortfolioBuilder({
               )}
             </div>
             {portfolios.length > 0 && !metaSaved && (
-              <p className="text-xs text-orange-600">Save yields & buckets before continuing.</p>
+              <p className="text-xs text-orange-600">Save yields &amp; buckets before continuing.</p>
             )}
           </div>
         </div>
