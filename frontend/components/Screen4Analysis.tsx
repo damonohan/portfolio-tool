@@ -389,7 +389,7 @@ export default function Screen4Analysis({
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New D.Kurt</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Exp. Return</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Std Dev</th>
-                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Income Boost</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Exp. Income</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Score</th>
                   </tr>
                 </thead>
@@ -446,9 +446,20 @@ export default function Screen4Analysis({
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {r.income_boost > 0
-                            ? <span className="text-green-600 font-semibold">+{(r.income_boost * 100).toFixed(4)}%</span>
-                            : <span className="text-slate-400">—</span>}
+                          {(() => {
+                            const newIncome = baseMetrics.expected_income_pct + r.income_boost * 100;
+                            const delta     = r.income_boost * 100;
+                            return (
+                              <div className="flex flex-col items-end leading-tight">
+                                <span className="text-slate-800 font-medium tabular-nums">{newIncome.toFixed(2)}%</span>
+                                {Math.abs(delta) > 0.0001 && (
+                                  <span className={`text-xs font-semibold tabular-nums ${delta > 0 ? "text-green-600" : "text-red-500"}`}>
+                                    {delta > 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(2)}%
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">{r.score.toFixed(4)}</td>
                       </tr>
