@@ -74,7 +74,7 @@ function WeightsExpander({
 
   return (
     <tr className="border-b border-slate-100">
-      <td colSpan={7} className="px-4 py-0">
+      <td colSpan={9} className="px-4 py-0">
         <button
           onClick={() => setOpen((o) => !o)}
           className="text-xs text-slate-500 hover:text-blue-600 py-1 flex items-center gap-1"
@@ -120,6 +120,7 @@ function BaseRow({ base }: { base: HorizonMetrics }) {
       <td className={td}>{fmtDKurt(base.downside_kurt)}</td>
       <td className={td}>{fmtIncome(base.expected_income_pct)}</td>
       <td className={td}>{fmtMean(base.mean)}</td>
+      <td className={td}>{fmtMean(base.std)}</td>
     </tr>
   );
 }
@@ -175,6 +176,9 @@ function NoteGroup({
             </td>
             <td className="px-3 py-1.5 text-right">
               <DeltaCell value={m.mean} base={base.mean} higherBetter fmt={fmtMean} />
+            </td>
+            <td className="px-3 py-1.5 text-right">
+              <DeltaCell value={m.std} base={base.std} higherBetter={false} fmt={fmtMean} />
             </td>
           </tr>
         );
@@ -277,6 +281,7 @@ function PortfolioPanel({ port, defaultOpen }: { port: PortfolioCandidate; defau
                   <th className={thR}>D. Kurt</th>
                   <th className={thR}>E. Income</th>
                   <th className={thR}>Mean Ret</th>
+                  <th className={thR}>Std Dev</th>
                 </tr>
               </thead>
               <tbody>
