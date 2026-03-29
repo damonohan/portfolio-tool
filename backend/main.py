@@ -409,6 +409,8 @@ def _run_precalc(portfolio_name: str) -> None:
                                 "pct_neg":       round(m["pct_neg"],       4),
                                 "shorty":        round(m["shorty"],        4),
                                 "downside_kurt": round(m["downside_kurt"], 4),
+                                "mean":          round(m["mean"],          4),
+                                "std":           round(m["std"],           4),
                                 "income_boost":  round(income_boost,       6),
                             },
                         })

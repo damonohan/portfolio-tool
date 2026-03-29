@@ -115,6 +115,8 @@ export default function Screen4Analysis({
         pct_neg:       c.metrics.pct_neg,
         shorty:        c.metrics.shorty,
         downside_kurt: c.metrics.downside_kurt ?? 0,
+        mean:          c.metrics.mean ?? 0,
+        std:           c.metrics.std ?? 0,
         income_boost:  c.metrics.income_boost,
         score,
       });
@@ -292,6 +294,8 @@ export default function Screen4Analysis({
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New %Neg</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New Shorty</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">New D.Kurt</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Exp. Return</th>
+                    <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Std Dev</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Income Boost</th>
                     <th className="px-4 py-3 text-right text-xs uppercase font-semibold text-slate-500">Score</th>
                   </tr>
@@ -334,6 +338,18 @@ export default function Screen4Analysis({
                           {(r.downside_kurt ?? 0).toFixed(4)}
                           <span className={`ml-1 text-xs ${dkurtDelta <= 0 ? "text-green-600" : "text-red-500"}`}>
                             ({dkurtDelta >= 0 ? "+" : ""}{dkurtDelta.toFixed(4)})
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-800">
+                          {((r.mean ?? 0) * 100).toFixed(2)}%
+                          <span className={`ml-1 text-xs ${(r.mean - baseMetrics.mean) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({(r.mean - baseMetrics.mean) >= 0 ? "+" : ""}{((r.mean - baseMetrics.mean) * 100).toFixed(2)}%)
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-800">
+                          {((r.std ?? 0) * 100).toFixed(2)}%
+                          <span className={`ml-1 text-xs ${(r.std - baseMetrics.std) <= 0 ? "text-green-600" : "text-red-500"}`}>
+                            ({(r.std - baseMetrics.std) >= 0 ? "+" : ""}{((r.std - baseMetrics.std) * 100).toFixed(2)}%)
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">

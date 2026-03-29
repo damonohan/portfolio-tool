@@ -244,6 +244,8 @@ export interface PrecalcCandidate {
     pct_neg: number;
     shorty: number;
     downside_kurt: number;
+    mean: number;
+    std: number;
     income_boost: number;  // fraction units
   };
 }
@@ -267,6 +269,8 @@ export interface RankedCandidate {
   pct_neg: number;
   shorty: number;
   downside_kurt: number;
+  mean: number;
+  std: number;
   income_boost: number;
   score: number;
 }
