@@ -189,7 +189,7 @@ export default function Screen4Analysis({
   const noData = !precalcLoading && portName && !precalcData[portName];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
         <div>
           <h2 className="text-xl font-bold text-slate-800 mb-1">Framework Selection</h2>
