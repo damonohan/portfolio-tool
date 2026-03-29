@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAppContext } from "@/lib/AppContext";
-import { api, ImprovementDetail as DetailData } from "@/lib/api";
+import { api, ImprovementDetail as DetailData, Improvement } from "@/lib/api";
 import { plotlyToHistBins, smooth } from "@/lib/chartUtils";
 import {
   Chart as ChartJS,
@@ -49,39 +49,58 @@ const NOTE_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
 export default function HistogramDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { ranked, framework, improvementsComputed, setImprovementsComputed, sessionLoaded } = useAppContext();
+  const searchParams = useSearchParams();
+  const { framework, setImprovementsComputed, sessionLoaded } = useAppContext();
   const index = Number(params.index);
+  const noteIdParam = searchParams.get("note_id");
 
   const [detail, setDetail] = useState<DetailData | null>(null);
+  const [improvements, setImprovements] = useState<Improvement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAssets, setShowAssets] = useState(false);
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
     if (!sessionLoaded || !framework.portfolio_name) return;
+    // Reset on index/note change
+    fetchedRef.current = false;
+  }, [sessionLoaded, framework.portfolio_name, index, noteIdParam]);
+
+  useEffect(() => {
+    if (!sessionLoaded || !framework.portfolio_name || fetchedRef.current) return;
+    fetchedRef.current = true;
     setLoading(true);
     setError("");
 
     const fetchDetail = async () => {
-      // Ensure improvements are computed first
-      if (!improvementsComputed) {
-        try {
-          await api.findImprovements({
-            portfolio_name: framework.portfolio_name,
-            outlook: framework.outlook,
-            risk_tolerance: framework.risk_tolerance,
-            goal: framework.goal,
-            horizon: framework.horizon,
-          });
-          setImprovementsComputed(true);
-        } catch (e) {
-          setError(e instanceof Error ? e.message : "Failed to compute improvements");
+      // Always call findImprovements to ensure backend has the data
+      try {
+        const result = await api.findImprovements({
+          portfolio_name: framework.portfolio_name,
+          outlook: framework.outlook,
+          risk_tolerance: framework.risk_tolerance,
+          goal: framework.goal,
+          horizon: framework.horizon,
+          ensure_note_id: noteIdParam || undefined,
+        });
+        setImprovementsComputed(true);
+        setImprovements(result.improvements);
+
+        // Find the correct backend index for this note
+        let detailIndex = index;
+        if (noteIdParam && result.improvements.length > 0) {
+          const matchIdx = result.improvements.findIndex(imp => imp.note_id === noteIdParam);
+          if (matchIdx >= 0) detailIndex = matchIdx;
+        }
+
+        if (detailIndex >= result.improvements.length) {
+          setError("Improvement index out of range.");
           setLoading(false);
           return;
         }
-      }
-      try {
-        const d = await api.getImprovementDetail(index);
+
+        const d = await api.getImprovementDetail(detailIndex);
         setDetail(d);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load detail");
@@ -89,7 +108,7 @@ export default function HistogramDetailPage() {
       setLoading(false);
     };
     fetchDetail();
-  }, [index, sessionLoaded, framework, improvementsComputed, setImprovementsComputed]);
+  }, [sessionLoaded, framework, index, noteIdParam, setImprovementsComputed]);
 
   // Parse histogram data for Chart.js
   const chartData = useMemo(() => {
@@ -118,7 +137,10 @@ export default function HistogramDetailPage() {
 
   const { base_metrics, after_metrics, base_weights, after_weights } = detail;
   const typeColor = NOTE_TYPE_COLORS[detail.note_type] ?? NOTE_TYPE_COLORS.Absolute;
-  const total = ranked.length;
+  const total = improvements.length || 1;
+  // Find this detail's score from improvements list
+  const matchingImp = improvements.find(imp => imp.note_id === detail.note_id);
+  const detailScore = matchingImp?.score ?? 0;
 
   // Bucket calculation for composition
   const allAssets = Object.entries(after_weights).sort(([, a], [, b]) => b - a);
@@ -132,7 +154,7 @@ export default function HistogramDetailPage() {
     { label: "Shorty", before: base_metrics.shorty, after: after_metrics.shorty, format: (v: number) => v.toFixed(4), lower: true },
     { label: "D. Kurt.", before: base_metrics.downside_kurt ?? 0, after: after_metrics.downside_kurt ?? 0, format: (v: number) => v.toFixed(4), lower: true },
     { label: "Exp. Income", before: base_metrics.expected_income_pct, after: after_metrics.expected_income_pct, format: (v: number) => `${v.toFixed(2)}%`, lower: false },
-    { label: "Score", before: 0, after: ranked[index]?.score ?? 0, format: (v: number) => v.toFixed(2), lower: false },
+    { label: "Score", before: 0, after: detailScore, format: (v: number) => v.toFixed(2), lower: false },
   ];
 
   const sharpeDelta = after_metrics.sharpe - base_metrics.sharpe;
@@ -167,7 +189,12 @@ export default function HistogramDetailPage() {
         <div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button
-              onClick={() => index > 0 && router.push(`/histogram/${index - 1}`)}
+              onClick={() => {
+                if (index > 0) {
+                  const prevNote = improvements[index - 1]?.note_id;
+                  router.push(`/histogram/${index - 1}${prevNote ? `?note_id=${encodeURIComponent(prevNote)}` : ""}`);
+                }
+              }}
               disabled={index === 0}
               style={{
                 background: "var(--bg-card)", border: "1px solid var(--border)",
@@ -177,7 +204,12 @@ export default function HistogramDetailPage() {
               }}
             >←</button>
             <button
-              onClick={() => index < total - 1 && router.push(`/histogram/${index + 1}`)}
+              onClick={() => {
+                if (index < total - 1) {
+                  const nextNote = improvements[index + 1]?.note_id;
+                  router.push(`/histogram/${index + 1}${nextNote ? `?note_id=${encodeURIComponent(nextNote)}` : ""}`);
+                }
+              }}
               disabled={index >= total - 1}
               style={{
                 background: "var(--bg-card)", border: "1px solid var(--border)",

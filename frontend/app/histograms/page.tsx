@@ -163,7 +163,7 @@ export default function HistogramsSummaryPage() {
             return (
               <Link
                 key={cand.note_id}
-                href={`/histogram/${idx}`}
+                href={`/histogram/${idx}?note_id=${encodeURIComponent(cand.note_id)}`}
                 style={{
                   background: "var(--bg-card)",
                   border: "1px solid var(--border)",

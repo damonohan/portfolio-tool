@@ -127,6 +127,7 @@ export default function AnalysisPage() {
           <div style={{ fontSize: 16, fontWeight: 600 }}>Framework &amp; Horizon</div>
           <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             Configure market outlook, risk tolerance, goal, and simulation horizon.
+            {" "}<Link href="/admin/framework-config" style={{ color: "var(--halo-cyan)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Configure Framework Rules</Link>
           </div>
         </div>
       </div>
@@ -423,7 +424,7 @@ export default function AnalysisPage() {
                       <td style={{ padding: "14px 12px", fontSize: 13, fontWeight: 700 }}>{r.score.toFixed(2)}</td>
                       <td style={{ padding: "14px 12px", textAlign: "center" }}>
                         <Link
-                          href={`/histogram/${idx}`}
+                          href={`/histogram/${idx}?note_id=${encodeURIComponent(r.note_id)}`}
                           onClick={(e) => e.stopPropagation()}
                           style={{
                             display: "inline-block",

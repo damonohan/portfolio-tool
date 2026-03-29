@@ -8,6 +8,7 @@ const adminSteps = [
   { href: "/admin/classify", label: "Classify Notes" },
   { href: "/admin/portfolio-builder", label: "Portfolio Builder" },
   { href: "/admin/portfolio-summary", label: "Portfolio Summary" },
+  { href: "/admin/framework-config", label: "Framework Config" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
