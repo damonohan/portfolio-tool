@@ -389,13 +389,14 @@ export default function ImprovementDetail({ index, onClose }: Props) {
               <div className="text-[11px] font-bold tracking-[0.15em] text-[#6b7fa0] uppercase pl-3 border-l-2 border-[#FFD700] mb-3 font-['Syne'] shrink-0">
                 Metrics Comparison
               </div>
-              <div className="grid grid-cols-6 gap-3 flex-1 min-h-0">
+              <div className="grid grid-cols-7 gap-3 flex-1 min-h-0">
                 <MetricCard label="Exp. Return" before={base_metrics.mean} after={after_metrics.mean} format={fmtPct} index={0} />
-                <MetricCard label="Sharpe Ratio" before={base_metrics.sharpe} after={after_metrics.sharpe} format={fmt4} index={1} />
-                <MetricCard label="% Negative" before={base_metrics.pct_neg} after={after_metrics.pct_neg} format={fmt2} lowerIsBetter index={2} />
-                <MetricCard label="Shorty" before={base_metrics.shorty} after={after_metrics.shorty} format={fmt4} lowerIsBetter index={3} />
-                <MetricCard label="D. Kurt." before={base_metrics.downside_kurt ?? 0} after={after_metrics.downside_kurt ?? 0} format={fmt4} lowerIsBetter index={4} />
-                <MetricCard label="Exp. Income" before={base_metrics.expected_income_pct} after={after_metrics.expected_income_pct} format={fmtPct} index={5} />
+                <MetricCard label="Std Dev" before={base_metrics.std} after={after_metrics.std} format={fmtPct} lowerIsBetter index={1} />
+                <MetricCard label="Sharpe Ratio" before={base_metrics.sharpe} after={after_metrics.sharpe} format={fmt4} index={2} />
+                <MetricCard label="% Negative" before={base_metrics.pct_neg} after={after_metrics.pct_neg} format={fmt2} lowerIsBetter index={3} />
+                <MetricCard label="Shorty" before={base_metrics.shorty} after={after_metrics.shorty} format={fmt4} lowerIsBetter index={4} />
+                <MetricCard label="D. Kurt." before={base_metrics.downside_kurt ?? 0} after={after_metrics.downside_kurt ?? 0} format={fmt4} lowerIsBetter index={5} />
+                <MetricCard label="Exp. Income" before={base_metrics.expected_income_pct} after={after_metrics.expected_income_pct} format={fmtPct} index={6} />
               </div>
             </div>
           </div>

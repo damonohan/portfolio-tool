@@ -251,16 +251,14 @@ export default function Screen4Analysis({
       {baseMetrics && !precalcLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
           <h3 className="text-lg font-bold text-slate-800">Base Portfolio — {horizon}yr Horizon</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+            <MetricCard label="Exp. Return"      value={`${(baseMetrics.mean * 100).toFixed(2)}%`} />
+            <MetricCard label="Std Dev"          value={`${(baseMetrics.std * 100).toFixed(2)}%`} />
             <MetricCard label="Sharpe Ratio"     value={baseMetrics.sharpe.toFixed(4)} />
             <MetricCard label="% Negative"       value={`${baseMetrics.pct_neg.toFixed(2)}%`} />
             <MetricCard label="Shorty"           value={baseMetrics.shorty.toFixed(4)} />
-            <MetricCard label="D. Kurt. (Downside)" value={(baseMetrics.downside_kurt ?? 0).toFixed(4)} />
+            <MetricCard label="D. Kurt."         value={(baseMetrics.downside_kurt ?? 0).toFixed(4)} />
             <MetricCard label="Expected Income"  value={`${baseMetrics.expected_income_pct.toFixed(2)}%`} />
-          </div>
-          <div className="flex gap-4 text-sm text-slate-500">
-            <span>Mean return: <strong className="text-slate-800">{(baseMetrics.mean * 100).toFixed(2)}%</strong></span>
-            <span>Std dev: <strong className="text-slate-800">{(baseMetrics.std * 100).toFixed(2)}%</strong></span>
           </div>
         </div>
       )}

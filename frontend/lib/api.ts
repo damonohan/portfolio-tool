@@ -297,8 +297,8 @@ export interface ImprovementDetail {
   alloc_pct: number;
   base_weights: Record<string, number>;
   after_weights: Record<string, number>;
-  base_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
-  after_metrics: { mean: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
+  base_metrics: { mean: number; std: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
+  after_metrics: { mean: number; std: number; sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
   alloc_curve: { alloc_pct: number; mean_return: number }[];
   histogram: PlotlyData;
 }
