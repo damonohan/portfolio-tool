@@ -77,7 +77,7 @@ export const api = {
     ensure_note_id?: string;
   }) =>
     req<{
-      base: { sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number };
+      base: { sharpe: number; pct_neg: number; shorty: number; downside_kurt: number; expected_income_pct: number; mean: number; std: number };
       improvements: Improvement[];
     }>("/find-improvements", {
       method: "POST",
@@ -283,6 +283,8 @@ export interface Improvement {
   new_pct_neg: number;
   new_shorty: number;
   new_downside_kurt: number;
+  new_mean: number;
+  new_std: number;
   income_boost: number;
   score: number;
 }

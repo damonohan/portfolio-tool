@@ -14,22 +14,24 @@ import { Chart } from "react-chartjs-2";
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Filler, Tooltip);
 
 export default function HistogramsSummaryPage() {
-  const { framework, ranked, baseMetrics, sessionLoaded, setImprovementsComputed } = useAppContext();
+  const { framework, sessionLoaded, setImprovementsComputed } = useAppContext();
   const [improvements, setImprovements] = useState<Improvement[]>([]);
+  const [baseSharpe, setBaseSharpe] = useState(0);
+  const [basePctNeg, setBasePctNeg] = useState(0);
+  const [baseMean, setBaseMean] = useState(0);
   const [histData, setHistData] = useState<(HistBins | null)[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const fetchedRef = useRef(false);
 
   useEffect(() => {
-    if (!sessionLoaded || ranked.length === 0 || fetchedRef.current) return;
+    if (!sessionLoaded || !framework.portfolio_name || fetchedRef.current) return;
     fetchedRef.current = true;
 
     const run = async () => {
       setLoading(true);
       setError("");
       try {
-        // Ensure improvements are computed server-side
         const result = await api.findImprovements({
           portfolio_name: framework.portfolio_name,
           outlook: framework.outlook,
@@ -38,6 +40,9 @@ export default function HistogramsSummaryPage() {
           horizon: framework.horizon,
         });
         setImprovements(result.improvements);
+        setBaseSharpe(result.base.sharpe);
+        setBasePctNeg(result.base.pct_neg);
+        setBaseMean(result.base.mean);
         setImprovementsComputed(true);
 
         // Fetch histograms in parallel
@@ -51,7 +56,7 @@ export default function HistogramsSummaryPage() {
       finally { setLoading(false); }
     };
     run();
-  }, [sessionLoaded, ranked, framework, setImprovementsComputed]);
+  }, [sessionLoaded, framework, setImprovementsComputed]);
 
   if (!sessionLoaded) {
     return <div style={{ padding: 80, textAlign: "center", color: "var(--text-muted)" }}>Loading...</div>;
@@ -70,7 +75,7 @@ export default function HistogramsSummaryPage() {
     );
   }
 
-  if (ranked.length === 0 && !loading) {
+  if (improvements.length === 0 && !loading) {
     return (
       <div style={{ maxWidth: 600, margin: "80px auto", textAlign: "center" }}>
         <div className="halo-card" style={{ padding: 40 }}>
@@ -83,7 +88,7 @@ export default function HistogramsSummaryPage() {
     );
   }
 
-  const top = ranked[0];
+  const top = improvements[0];
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: 24 }}>
@@ -128,13 +133,13 @@ export default function HistogramsSummaryPage() {
       </div>
 
       {/* Insight banner */}
-      {top && baseMetrics && (
+      {top && (
         <div className="insight-banner" style={{ marginBottom: 20 }}>
           <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>📈</span>
           <div className="insight-text">
-            <strong>{ranked.length} candidates</strong> passed acceptance criteria. The top candidate ({top.note_id}) improves Sharpe by{" "}
-            <strong>+{(top.sharpe - baseMetrics.sharpe).toFixed(2)}</strong> and reduces negative outcomes by{" "}
-            <strong>{Math.abs(top.pct_neg - baseMetrics.pct_neg).toFixed(1)} pp</strong>. Click any card for a deep-dive with full return distribution.
+            <strong>{improvements.length} candidates</strong> passed acceptance criteria. The top candidate ({top.note_id}) improves Sharpe by{" "}
+            <strong>+{(top.new_sharpe - baseSharpe).toFixed(2)}</strong> and reduces negative outcomes by{" "}
+            <strong>{Math.abs(top.new_pct_neg - basePctNeg).toFixed(1)} pp</strong>. Click any card for a deep-dive with full return distribution.
           </div>
         </div>
       )}
@@ -148,12 +153,12 @@ export default function HistogramsSummaryPage() {
       {/* 5-column card grid */}
       {!loading && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 24 }}>
-          {ranked.map((cand, idx) => {
+          {improvements.map((cand, idx) => {
             const hist = histData[idx];
             const isBest = idx === 0;
-            const sharpeDelta = baseMetrics ? cand.sharpe - baseMetrics.sharpe : 0;
-            const pctNegDelta = baseMetrics ? cand.pct_neg - baseMetrics.pct_neg : 0;
-            const returnDelta = baseMetrics ? (cand.mean - baseMetrics.mean) * 100 : 0;
+            const sharpeDelta = cand.new_sharpe - baseSharpe;
+            const pctNegDelta = cand.new_pct_neg - basePctNeg;
+            const returnDelta = cand.new_mean ? (cand.new_mean - baseMean) * 100 : 0;
 
             return (
               <Link
@@ -198,7 +203,7 @@ export default function HistogramsSummaryPage() {
                   {cand.note_type}: {cand.note_id}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
-                  {Math.round(cand.alloc_pct * 100)}% alloc
+                  {Math.round(cand.alloc_pct)}% alloc
                 </div>
 
                 {/* Mini histogram */}
@@ -215,9 +220,9 @@ export default function HistogramsSummaryPage() {
                 {/* 3 key metrics */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: "auto" }}>
                   {[
-                    { label: "Sharpe", value: cand.sharpe.toFixed(2), delta: sharpeDelta, lower: false },
-                    { label: "% Neg", value: `${cand.pct_neg.toFixed(1)}%`, delta: pctNegDelta, lower: true },
-                    { label: "Return", value: `${(cand.mean * 100).toFixed(1)}%`, delta: returnDelta, lower: false },
+                    { label: "Sharpe", value: cand.new_sharpe.toFixed(2), delta: sharpeDelta, lower: false },
+                    { label: "% Neg", value: `${cand.new_pct_neg.toFixed(1)}%`, delta: pctNegDelta, lower: true },
+                    { label: "Return", value: cand.new_mean ? `${(cand.new_mean * 100).toFixed(1)}%` : "—", delta: returnDelta, lower: false },
                   ].map((m) => {
                     const good = m.lower ? m.delta <= 0 : m.delta >= 0;
                     return (

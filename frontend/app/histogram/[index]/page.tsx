@@ -49,7 +49,7 @@ const NOTE_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
 export default function HistogramDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { ranked, framework, improvementsComputed, setImprovementsComputed } = useAppContext();
+  const { ranked, framework, improvementsComputed, setImprovementsComputed, sessionLoaded } = useAppContext();
   const index = Number(params.index);
 
   const [detail, setDetail] = useState<DetailData | null>(null);
@@ -58,6 +58,7 @@ export default function HistogramDetailPage() {
   const [showAssets, setShowAssets] = useState(false);
 
   useEffect(() => {
+    if (!sessionLoaded || !framework.portfolio_name) return;
     setLoading(true);
     setError("");
 
@@ -73,7 +74,11 @@ export default function HistogramDetailPage() {
             horizon: framework.horizon,
           });
           setImprovementsComputed(true);
-        } catch { /* fallthrough */ }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Failed to compute improvements");
+          setLoading(false);
+          return;
+        }
       }
       try {
         const d = await api.getImprovementDetail(index);
@@ -84,7 +89,7 @@ export default function HistogramDetailPage() {
       setLoading(false);
     };
     fetchDetail();
-  }, [index, framework, improvementsComputed, setImprovementsComputed]);
+  }, [index, sessionLoaded, framework, improvementsComputed, setImprovementsComputed]);
 
   // Parse histogram data for Chart.js
   const chartData = useMemo(() => {

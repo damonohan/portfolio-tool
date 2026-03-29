@@ -976,6 +976,8 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
                 "shorty":               round(base_m["shorty"],        4),
                 "downside_kurt":        round(base_m.get("downside_kurt", 0), 4),
                 "expected_income_pct":  round(base_m["expected_income_pct"], 4),
+                "mean":                 round(base_m.get("mean", 0),   6),
+                "std":                  round(base_m.get("std", 0),    6),
             },
             "improvements": [],
         }
@@ -1036,6 +1038,8 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
             "new_pct_neg":        round(m["pct_neg"],       4),
             "new_shorty":         round(m["shorty"],        4),
             "new_downside_kurt":  round(m.get("downside_kurt", 0), 4),
+            "new_mean":           round(m.get("mean", 0),   6),
+            "new_std":            round(m.get("std", 0),    6),
             "income_boost":       round(income_boost,       4),
             "score":              round(c["score"],         6),
             "port_returns":       port_ret.tolist(),
@@ -1064,6 +1068,8 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
             "shorty":               round(base_m["shorty"],        4),
             "downside_kurt":        round(base_m.get("downside_kurt", 0), 4),
             "expected_income_pct":  round(base_m["expected_income_pct"], 4),
+            "mean":                 round(base_m.get("mean", 0),   6),
+            "std":                  round(base_m.get("std", 0),    6),
         },
         "improvements": response_results,
     }
