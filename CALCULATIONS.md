@@ -229,9 +229,13 @@ A candidate is included only if **all** of the following pass for its framework 
 - `POST /framework-config` — updates config, saves to DB, re-runs pre-calculation for all portfolios
 - `POST /framework-config/reset` — resets to built-in defaults, re-runs pre-calculation
 
+### Client-Side Filtering
+
+In addition to the backend filtering at `POST /find-improvements`, the frontend performs its own client-side filtering and ranking in `lib/ranking.ts` using the same framework config. This allows the analysis page to update results instantly when the user changes framework parameters, without a server round-trip. The client-side ranked candidates use pre-calculated data from `/portfolio-precalc`.
+
 ### Legacy Note
 
-The original 3-gate system (Goal → Outlook → Risk Tolerance Cap) documented in earlier versions has been fully replaced by this flexible framework. The `framework_params()` function in `calculations.py` is retained but unused.
+The original 3-gate system (Goal -> Outlook -> Risk Tolerance Cap) documented in earlier versions has been fully replaced by this flexible framework. The `framework_params()` function in `calculations.py` is retained but unused.
 
 ---
 
@@ -413,8 +417,8 @@ This means the table always shows the single best allocation for each note, not 
 
 For a given improvement candidate (by rank index), an overlay histogram is generated comparing:
 
-- **Base portfolio** return distribution (steelblue, label: portfolio name)
-- **Candidate** return distribution (darkorange, label: `Note ID @ Alloc%`)
+- **Base portfolio** return distribution (grey, label: portfolio name)
+- **Candidate** return distribution (teal/cyan, label: `Note ID @ Alloc%`)
 
 Configuration:
 - Both distributions rendered as **probability density** (area sums to 1), enabling visual shape comparison regardless of scale
@@ -422,7 +426,7 @@ Configuration:
 - Returns multiplied by 100 for display (shown as %)
 - Red dashed vertical line at x = 0 marks the breakeven point
 
-The histogram data is returned as a Plotly JSON object and rendered client-side via `react-plotly.js`.
+The backend returns Plotly-format histogram data which the frontend decodes via `chartUtils.ts` (`plotlyToHistBins`) and renders using Chart.js with a mixed bar + smoothed line overlay. Each distribution is shown as both a bar chart (semi-transparent) and a smoothed KDE-style line for visual clarity.
 
 ---
 
