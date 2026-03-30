@@ -40,6 +40,10 @@ interface AppState {
   baseMetrics: PrecalcMetrics | null;
   ranked: RankedCandidate[];
 
+  // Admin
+  adminAuthenticated: boolean;
+  setAdminAuthenticated: (v: boolean) => void;
+
   // Actions
   loadPrecalc: () => Promise<void>;
   setAssetCols: (v: string[]) => void;
@@ -89,8 +93,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [minAlloc, setMinAlloc] = useState(5);
   const [maxAlloc, setMaxAlloc] = useState(30);
 
+  const [adminAuthenticated, setAdminAuthenticatedRaw] = useState(false);
   const [improvementsComputed, setImprovementsComputed] = useState(false);
   const [sessionLoaded, setSessionLoaded] = useState(false);
+
+  const setAdminAuthenticated = useCallback((v: boolean) => {
+    setAdminAuthenticatedRaw(v);
+    if (typeof window !== "undefined") {
+      if (v) sessionStorage.setItem("adminAuth", "1");
+      else sessionStorage.removeItem("adminAuth");
+    }
+  }, []);
 
   const loadPrecalc = useCallback(async () => {
     setPrecalcLoading(true);
@@ -127,6 +140,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Hydrate on mount
   useEffect(() => {
+    // Restore admin auth from sessionStorage
+    if (typeof window !== "undefined" && sessionStorage.getItem("adminAuth") === "1") {
+      setAdminAuthenticatedRaw(true);
+    }
+
     // Load framework config
     api.getFrameworkConfig().then(setFrameworkConfig).catch(() => {});
 
@@ -189,6 +207,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     framework, setFramework, frameworkConfig,
     minAlloc, maxAlloc, setMinAlloc, setMaxAlloc,
     baseMetrics, ranked,
+    adminAuthenticated, setAdminAuthenticated,
     loadPrecalc,
     setAssetCols, setNoteIds, setNoteMeta, setNoteSuggestions,
     setPortfolioNames, setFrameworkConfig, resetSession,

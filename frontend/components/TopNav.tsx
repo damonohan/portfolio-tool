@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import AdminPasswordModal from "./AdminPasswordModal";
 
 export default function TopNav() {
   const pathname = usePathname();
+  const [showAdminModal, setShowAdminModal] = useState(false);
 
   const navLinks = [
     { href: "/analysis", label: "Analysis" },
@@ -66,8 +69,8 @@ export default function TopNav() {
         )}
 
         {/* Right: Admin link */}
-        <Link
-          href="/admin/upload"
+        <button
+          onClick={() => setShowAdminModal(true)}
           title="Admin Settings"
           style={{
             background: "none",
@@ -80,12 +83,13 @@ export default function TopNav() {
             display: "flex",
             alignItems: "center",
             gap: "6px",
-            textDecoration: "none",
+            cursor: "pointer",
           }}
         >
           <span>⚙</span>
-        </Link>
+        </button>
       </nav>
+      {showAdminModal && <AdminPasswordModal onClose={() => setShowAdminModal(false)} />}
     </>
   );
 }

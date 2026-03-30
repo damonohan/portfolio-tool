@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAppContext } from "@/lib/AppContext";
 
 const adminSteps = [
   { href: "/admin/upload", label: "Upload" },
@@ -12,7 +13,33 @@ const adminSteps = [
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const { adminAuthenticated } = useAppContext();
   const pathname = usePathname();
+
+  if (!adminAuthenticated) {
+    return (
+      <div style={{ maxWidth: 600, margin: "80px auto", textAlign: "center", padding: "0 24px" }}>
+        <div className="halo-card" style={{ padding: "40px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "8px" }}>Admin Access Required</h2>
+          <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
+            Click the gear icon in the top nav to enter the admin password.
+          </p>
+          <Link href="/analysis" style={{
+            display: "inline-block",
+            padding: "10px 24px",
+            background: "linear-gradient(135deg, var(--halo-cyan), var(--halo-teal))",
+            borderRadius: "8px",
+            color: "#fff",
+            fontSize: "13px",
+            fontWeight: 600,
+            textDecoration: "none",
+          }}>
+            Back to Analysis
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
