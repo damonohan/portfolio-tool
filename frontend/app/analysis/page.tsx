@@ -276,57 +276,21 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {/* ── Base Portfolio Metrics ──────────────────── */}
-      {baseMetrics && !precalcLoading && (
-        <div className="halo-card" style={{ marginBottom: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Base Portfolio — {portName}</div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                {horizon}yr Horizon &middot; 10,000 Monte Carlo Simulations
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <a href={api.exportCsvUrl()} className="dl-btn" download>↓ Export CSV</a>
-              <a href={api.exportPdfUrl()} className="dl-btn" download>↓ Export PDF</a>
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 12 }}>
-            {[
-              { label: "Exp. Return", value: `${(baseMetrics.mean * 100).toFixed(2)}%` },
-              { label: "Std Dev", value: `${(baseMetrics.std * 100).toFixed(2)}%` },
-              { label: "Sharpe Ratio", value: baseMetrics.sharpe.toFixed(4) },
-              { label: "% Negative", value: `${baseMetrics.pct_neg.toFixed(2)}%` },
-              { label: "Shorty", value: baseMetrics.shorty.toFixed(4) },
-              { label: "D. Kurt.", value: (baseMetrics.downside_kurt ?? 0).toFixed(4) },
-              { label: "Exp. Income", value: `${baseMetrics.expected_income_pct.toFixed(2)}%` },
-            ].map((m) => (
-              <div key={m.label} style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 10,
-                padding: "14px 12px",
-                textAlign: "center",
-              }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--halo-cyan)", marginBottom: 4 }}>{m.value}</div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{m.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Top 5 Candidates Table ──────────────────── */}
       {baseMetrics && !precalcLoading && (
         <div className="halo-card" style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 600 }}>Top 5 Improvement Candidates</div>
-            <div style={{
-              fontSize: 11, color: "var(--text-muted)",
-              background: "rgba(255,255,255,0.05)",
-              padding: "4px 12px", borderRadius: 12,
-            }}>
-              {outlook} / {goal} / {risk} &middot; Updates instantly
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                fontSize: 11, color: "var(--text-muted)",
+                background: "rgba(255,255,255,0.05)",
+                padding: "4px 12px", borderRadius: 12,
+              }}>
+                {outlook} / {goal} / {risk} &middot; Updates instantly
+              </div>
+              <a href={api.exportCsvUrl()} className="dl-btn" download>↓ CSV</a>
+              <a href={api.exportPdfUrl()} className="dl-btn" download>↓ PDF</a>
             </div>
           </div>
 
