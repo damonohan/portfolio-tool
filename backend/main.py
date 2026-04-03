@@ -1,6 +1,6 @@
 """
 FastAPI backend for the Portfolio Construction & Note Allocation Improvement Tool.
-Session state is in-memory; portfolio/metadata state is persisted to a local JSON file
+Session state is in-memory; portfolio/metadata state is persisted to SQLite
 keyed by a file fingerprint so portfolios survive server restarts and work across
 multiple uploaded files.
 """
@@ -50,23 +50,11 @@ app.add_middleware(
 # Set DATA_DIR=/data on Render (persistent disk mount) to survive redeploys.
 # Falls back to the backend/ directory for local dev.
 DATA_DIR    = os.environ.get("DATA_DIR", os.path.dirname(__file__))
-DB_PATH     = os.path.join(DATA_DIR, "portfolios_db.json")
 UPLOAD_PATH = os.path.join(DATA_DIR, "simulation.xlsx")
 
-
-def _load_db() -> dict[str, Any]:
-    if os.path.exists(DB_PATH):
-        try:
-            with open(DB_PATH) as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+import db as persistence_db  # SQLite persistence layer
 
 
-def _save_db(db: dict[str, Any]) -> None:
-    with open(DB_PATH, "w") as f:
-        json.dump(db, f, indent=2)
 
 
 def _fingerprint(df: pd.DataFrame) -> str:
@@ -81,9 +69,11 @@ def _db_save_session(fp: str) -> None:
     """Persist current session's mutable state under the given fingerprint."""
     if not fp:
         return
-    db = _load_db()
-    entry = db.get(fp, {})
-    entry.update({
+    persistence_db.save_session(fp, {
+        "filename":      SESSION.get("_filename", ""),
+        "row_count":     SESSION.get("_row_count", 0),
+        "asset_cols":    SESSION["asset_cols"],
+        "note_ids":      SESSION["note_ids"],
         "note_meta":     SESSION["note_meta"],
         "asset_yields":  SESSION["asset_yields"],
         "asset_buckets": SESSION["asset_buckets"],
@@ -91,28 +81,21 @@ def _db_save_session(fp: str) -> None:
             name: {"name": p["name"], "weights": p["weights"], "risk_free": p.get("risk_free", 2.0)}
             for name, p in SESSION["portfolios"].items()
         },
-        "precalc":    SESSION["precalc"],
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "precalc":       SESSION["precalc"],
     })
-    db[fp] = entry
-    # Persist framework_config at top level (not fingerprint-keyed — global across files)
     if SESSION.get("framework_config"):
-        db["framework_config"] = SESSION["framework_config"]
-    _save_db(db)
+        persistence_db.save_framework_config(SESSION["framework_config"])
 
 
 def _db_save_framework_config() -> None:
-    """Persist framework_config at top level of DB (independent of file fingerprint)."""
-    db = _load_db()
-    db["framework_config"] = SESSION["framework_config"]
-    _save_db(db)
+    """Persist framework_config (independent of file fingerprint)."""
+    persistence_db.save_framework_config(SESSION["framework_config"])
 
 
 def _db_load_framework_config() -> None:
-    """Load framework_config from DB top-level key into SESSION.
+    """Load framework_config from DB into SESSION.
     Auto-merges any new default types added in code into saved cells."""
-    db = _load_db()
-    saved = db.get("framework_config")
+    saved = persistence_db.load_framework_config()
     if saved and saved.get("cells"):
         # Merge any new default types into saved cells (e.g. Snowball added after initial save)
         dirty = False
@@ -126,8 +109,7 @@ def _db_load_framework_config() -> None:
                     dirty = True
         SESSION["framework_config"] = saved
         if dirty:
-            db["framework_config"] = saved
-            _save_db(db)
+            persistence_db.save_framework_config(saved)
     else:
         SESSION["framework_config"] = _default_framework_config()
 
@@ -429,6 +411,12 @@ def _run_precalc(portfolio_name: str) -> None:
 @app.on_event("startup")
 async def startup_event():
     """Auto-load the last uploaded file and framework config on startup."""
+    # Initialize SQLite and auto-migrate from JSON if needed
+    persistence_db.init_db()
+    json_path = os.path.join(DATA_DIR, "portfolios_db.json")
+    if os.path.exists(json_path):
+        from migrate_json_to_sqlite import migrate
+        migrate()
     # Always restore framework config first (independent of file)
     _db_load_framework_config()
     # Then restore file + portfolio data if available
@@ -559,8 +547,7 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
 
     # Fingerprint and restore persisted state if this file was seen before
     fp = _fingerprint(df)
-    db = _load_db()
-    saved = db.get(fp, {})
+    saved = persistence_db.get_session(fp) or {}
     restored_portfolios = 0
 
     # Extract numpy array from DataFrame for memory-efficient storage
@@ -580,6 +567,8 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
     SESSION["note_ids"]          = note_ids
     SESSION["note_col_map"]      = note_col_map
     SESSION["fingerprint"]       = fp
+    SESSION["_filename"]         = filename
+    SESSION["_row_count"]        = len(df)
     SESSION["improvements"]      = None
     SESSION["improvements_meta"] = None
     SESSION["note_suggestions"]  = note_suggestions
@@ -612,7 +601,7 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
         SESSION["portfolios"]    = {}
         SESSION["precalc"]       = {}
         # Seed the DB entry with file metadata
-        db[fp] = {
+        persistence_db.save_session(fp, {
             "filename":      filename,
             "row_count":     len(df),
             "asset_cols":    asset_cols,
@@ -622,10 +611,7 @@ def _parse_and_load_xlsx(contents: bytes, filename: str = "upload.xlsx") -> dict
             "asset_buckets": {},
             "portfolios":    {},
             "precalc":       {},
-            "created_at":    datetime.now(timezone.utc).isoformat(),
-            "updated_at":    datetime.now(timezone.utc).isoformat(),
-        }
-        _save_db(db)
+        })
 
     # ── Auto-classify notes if Tracking sheet covers every data note ID ──────
     auto_classified = False
@@ -1777,18 +1763,17 @@ def session_state():
 @app.get("/files")
 def list_files():
     """Return all previously uploaded files with their portfolio counts."""
-    db = _load_db()
-    result = []
-    for fp, entry in db.items():
-        result.append({
-            "fingerprint":     fp,
-            "filename":        entry.get("filename", "unknown"),
-            "row_count":       entry.get("row_count", 0),
-            "asset_cols":      entry.get("asset_cols", []),
-            "note_ids":        entry.get("note_ids", []),
-            "portfolio_count": len(entry.get("portfolios", {})),
-            "portfolio_names": list(entry.get("portfolios", {}).keys()),
-            "updated_at":      entry.get("updated_at", ""),
-        })
-    result.sort(key=lambda x: x["updated_at"], reverse=True)
-    return result
+    return persistence_db.list_files()
+
+
+@app.get("/admin/export-db")
+def admin_export_db():
+    """Export full database as JSON for backup or seeding another instance."""
+    return persistence_db.export_all()
+
+
+@app.post("/admin/import-db")
+def admin_import_db(data: dict):
+    """Import database from JSON (replaces all existing data)."""
+    persistence_db.import_all(data)
+    return {"ok": True, "message": "Database imported successfully."}

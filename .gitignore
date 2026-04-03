@@ -1,0 +1,21 @@
+# Data files (persisted on Render disk, not in git)
+backend/portfolios_db.json
+backend/portfolios_db.json.bak
+backend/portfolios.db
+backend/portfolios.db-wal
+backend/portfolios.db-shm
+backend/simulation.xlsx
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+
+# Node
+node_modules/
+
+# Environment
+.env.local
