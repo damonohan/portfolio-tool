@@ -10,6 +10,7 @@ export default function TopNav() {
   const [showAdminModal, setShowAdminModal] = useState(false);
 
   const navLinks = [
+    { href: "/advisor", label: "Advisor" },
     { href: "/analysis", label: "Analysis" },
     { href: "/frontier", label: "Frontier" },
   ];

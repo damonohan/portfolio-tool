@@ -64,7 +64,94 @@ def compute_metrics(final_returns: np.ndarray, risk_free_rate: float, horizon: i
         "pct_neg":       pct_neg,
         "shorty":        shorty,
         "downside_kurt": downside_kurt,
+        "cvar":          float(compute_cvar(final_returns, alpha=0.10)),
+        "p10":           float(compute_percentiles(final_returns)["p10"]),
+        "p50":           float(compute_percentiles(final_returns)["p50"]),
+        "p90":           float(compute_percentiles(final_returns)["p90"]),
     }
+
+
+# ── new risk metrics ──────────────────────────────────────────────────────────
+
+def compute_cvar(returns: np.ndarray, alpha: float = 0.10) -> float:
+    """
+    Expected Shortfall at the alpha level.
+    Returns the mean of the worst (alpha * 100)% of outcomes.
+
+    Args:
+        returns: 1D array of cumulative returns (fractions, e.g. -0.15 = -15%)
+        alpha: tail probability (default 0.10 = worst 10%)
+
+    Returns:
+        CVaR as a fraction (e.g. -0.12 = expected loss of 12% in worst 10% of scenarios).
+        Returned as percentage points in API output (multiply by 100).
+    """
+    threshold = np.percentile(returns, alpha * 100)
+    tail = returns[returns <= threshold]
+    return float(np.mean(tail)) if len(tail) > 0 else float(threshold)
+
+
+def compute_percentiles(returns: np.ndarray, percentiles: list = [10, 50, 90]) -> dict:
+    """
+    Compute named scenario anchors from the return distribution.
+    P10 = bear case, P50 = base case, P90 = bull case.
+
+    Args:
+        returns: 1D array of cumulative returns (fractions)
+        percentiles: list of percentile values to compute
+
+    Returns:
+        Dict of {"p10": float, "p50": float, "p90": float} as fractions.
+        Returned as percentage points in API output (multiply by 100).
+    """
+    result = {}
+    for p in percentiles:
+        result[f"p{p}"] = float(np.percentile(returns, p))
+    return result
+
+
+def barrier_breach_probability(note_cum_returns: np.ndarray, barrier_pct: float) -> float:
+    """
+    Fraction of simulations where the note's cumulative return falls below -barrier_pct.
+    Captures the 'cliff risk' for barrier/buffer notes explicitly.
+
+    Args:
+        note_cum_returns: 1D array of cumulative returns for the note column (fractions)
+        barrier_pct: barrier level as a percentage (e.g. 30.0 = 30% barrier)
+
+    Returns:
+        Breach probability as a fraction (e.g. 0.08 = 8% of simulations breach the barrier).
+        Returned as percentage points in API output (multiply by 100).
+
+    Note: If barrier_pct is 0 or not applicable for the note type, return 0.0.
+    """
+    if barrier_pct <= 0:
+        return 0.0
+    threshold = -(barrier_pct / 100.0)
+    breaches = np.sum(note_cum_returns < threshold)
+    return float(breaches / len(note_cum_returns))
+
+
+def upside_capture_rate(candidate_returns: np.ndarray, base_returns: np.ndarray) -> float:
+    """
+    In simulations where the BASE portfolio is positive, what fraction of that
+    upside does the CANDIDATE portfolio capture?
+
+    Formula: mean(candidate_returns[base > 0]) / mean(base_returns[base > 0])
+
+    Returns:
+        Ratio as a fraction (e.g. 0.85 = captures 85% of upside).
+        Returned as a percentage in API output (multiply by 100).
+        Returns 1.0 if no positive base scenarios exist.
+    """
+    positive_mask = base_returns > 0
+    if positive_mask.sum() == 0:
+        return 1.0
+    base_up = np.mean(base_returns[positive_mask])
+    cand_up = np.mean(candidate_returns[positive_mask])
+    if base_up == 0:
+        return 1.0
+    return float(cand_up / base_up)
 
 
 def expected_income(weights: dict[str, float], yields: dict[str, float]) -> float:

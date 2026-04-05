@@ -154,6 +154,24 @@ export const api = {
 
   exportCsvUrl: () => `${BASE}/export/csv`,
   exportPdfUrl: () => `${BASE}/export/pdf`,
+
+  generateNarratives: (params: {
+    portfolio_name: string;
+    candidates: { note_id: string; alloc_pct: number }[];
+    horizon: number;
+    outlook: string;
+    advisor_context: {
+      client_concern: string;
+      goal: string;
+      outlook: string;
+      client_description: string;
+    };
+  }) =>
+    req<NarrativeResponse>("/generate-narratives", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
 };
 
 // ── Note metadata (extended from Notes sheet) ──────────────────────────────
@@ -230,6 +248,10 @@ export interface PrecalcMetrics {
   expected_income_pct: number;
   mean: number;
   std: number;
+  cvar?: number;
+  p10?: number;
+  p50?: number;
+  p90?: number;
 }
 
 export interface PrecalcCandidate {
@@ -247,6 +269,12 @@ export interface PrecalcCandidate {
     mean: number;
     std: number;
     income_boost: number;  // fraction units
+    cvar?: number;
+    p10?: number;
+    p50?: number;
+    p90?: number;
+    barrier_breach_pct?: number;
+    upside_capture?: number;
   };
 }
 
@@ -326,4 +354,18 @@ export interface EfficientFrontierData {
   base_points: EfficientFrontierPoint[];
   note_points: EfficientFrontierNotePoint[];
   note_frontier: EfficientFrontierNotePoint[];
+}
+
+// ── Narrative generation types ────────────────────────────────────────────────
+export interface NarrativeOption {
+  option: string;         // "A" | "B" | "C"
+  note_id: string;
+  alloc_pct: number;
+  narrative: string;
+  metrics: Record<string, number>;
+}
+
+export interface NarrativeResponse {
+  narratives: NarrativeOption[];
+  count: number;
 }

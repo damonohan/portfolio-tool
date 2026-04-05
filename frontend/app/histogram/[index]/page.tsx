@@ -91,7 +91,13 @@ export default function HistogramDetailPage() {
         let detailIndex = index;
         if (noteIdParam && result.improvements.length > 0) {
           const matchIdx = result.improvements.findIndex(imp => imp.note_id === noteIdParam);
-          if (matchIdx >= 0) detailIndex = matchIdx;
+          if (matchIdx >= 0) {
+            detailIndex = matchIdx;
+          } else {
+            setError(`Note ${noteIdParam} is not available for the current framework settings.`);
+            setLoading(false);
+            return;
+          }
         }
 
         if (detailIndex >= result.improvements.length) {

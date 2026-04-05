@@ -32,6 +32,8 @@ from calculations import (
     find_improvements,
     # portfolio_returns no longer used — replaced by direct numpy @ operator
     rank_score,
+    barrier_breach_probability,
+    upside_capture_rate,
 )
 
 app = FastAPI(title="Portfolio Tool API")
@@ -308,6 +310,10 @@ def _run_precalc(portfolio_name: str) -> None:
             "mean":                 round(m["mean"],          4),
             "std":                  round(m["std"],           4),
             "expected_income_pct":  round(inc_pct,            4),
+            "cvar":                 round(m["cvar"] * 100,    3),
+            "p10":                  round(m["p10"] * 100,     3),
+            "p50":                  round(m["p50"] * 100,     3),
+            "p90":                  round(m["p90"] * 100,     3),
         }
 
         # Candidates for all 3 outlooks at this horizon
@@ -366,6 +372,9 @@ def _run_precalc(portfolio_name: str) -> None:
                         (is_income and income_boost > 0)
                     )
                     if improves:
+                        barrier_pct = ext.get("protection_pct", 0.0)
+                        breach = barrier_breach_probability(note_arr, barrier_pct) if barrier_pct > 0 else 0.0
+                        upside = upside_capture_rate(port_ret, base_ret)
                         candidates.append({
                             "note_id":        note_id,
                             "note_type":      note_type,
@@ -374,13 +383,19 @@ def _run_precalc(portfolio_name: str) -> None:
                             "protection_type": ext.get("protection_type", ""),
                             "protection_pct":  ext.get("protection_pct",  0.0),
                             "metrics": {
-                                "sharpe":        round(m["sharpe"],        4),
-                                "pct_neg":       round(m["pct_neg"],       4),
-                                "shorty":        round(m["shorty"],        4),
-                                "downside_kurt": round(m["downside_kurt"], 4),
-                                "mean":          round(m["mean"],          4),
-                                "std":           round(m["std"],           4),
-                                "income_boost":  round(income_boost,       6),
+                                "sharpe":            round(m["sharpe"],        4),
+                                "pct_neg":           round(m["pct_neg"],       4),
+                                "shorty":            round(m["shorty"],        4),
+                                "downside_kurt":     round(m["downside_kurt"], 4),
+                                "mean":              round(m["mean"],          4),
+                                "std":               round(m["std"],           4),
+                                "income_boost":      round(income_boost,       6),
+                                "cvar":              round(m["cvar"] * 100,    3),
+                                "p10":               round(m["p10"] * 100,     3),
+                                "p50":               round(m["p50"] * 100,     3),
+                                "p90":               round(m["p90"] * 100,     3),
+                                "barrier_breach_pct": round(breach * 100,      3),
+                                "upside_capture":    round(upside * 100,       2),
                             },
                         })
 
@@ -926,11 +941,22 @@ def find_improvements_endpoint(req: FindImprovementsRequest):
 
     # If a specific note is requested, ensure it's included first
     if req.ensure_note_id:
+        found = False
         for c in scored:
             if c["note_id"] == req.ensure_note_id:
                 seen.add(c["note_id"])
                 top5.append(c)
+                found = True
                 break
+        if not found:
+            # Note was filtered out by framework config — bypass filters
+            # and search the raw unfiltered candidates for this outlook/horizon
+            for cand in candidates:
+                if cand["note_id"] == req.ensure_note_id:
+                    score = rank_score(base_m, cand["metrics"], req.goal)
+                    seen.add(cand["note_id"])
+                    top5.append({**cand, "score": score})
+                    break
 
     for c in scored:
         if c["note_id"] not in seen:
@@ -1515,7 +1541,7 @@ def export_pdf():
 # ── Dev helper: load test file from disk ─────────────────────────────────────
 
 @app.post("/dev/load-test-file")
-async def dev_load_test_file(path: str = "../Test2.xlsx"):
+async def dev_load_test_file(path: str = "../BB.xlsx"):
     """Development helper — loads a file from the server's filesystem."""
     abs_path = os.path.abspath(os.path.join(os.path.dirname(__file__), path))
     if not os.path.exists(abs_path):
@@ -1764,3 +1790,112 @@ def admin_import_db(data: dict):
     """Import database from JSON (replaces all existing data)."""
     persistence_db.import_all(data)
     return {"ok": True, "message": "Database imported successfully."}
+
+
+# ── Narrative generation ──────────────────────────────────────────────────────
+
+import asyncio
+from narrative import generate_narrative
+
+# Only 1 narrative generation at a time — prevents Ollama memory pressure
+_narrative_lock = asyncio.Semaphore(1)
+
+
+@app.post("/generate-narratives")
+async def api_generate_narratives(payload: dict):
+    """
+    Generate advisor-facing narratives for the top 3 candidates simultaneously.
+    Always returns up to 3 narratives — the 3-option rule is enforced here.
+
+    Payload:
+    {
+        "portfolio_name": str,
+        "candidates": [
+            { "note_id": str, "alloc_pct": float },
+            ...up to 3
+        ],
+        "horizon": int,
+        "outlook": str,
+        "advisor_context": {
+            "client_concern": str,
+            "goal": str,
+            "outlook": str,
+            "client_description": str
+        }
+    }
+
+    Returns: {
+        "narratives": [
+            { "option": "A", "note_id": str, "alloc_pct": float, "narrative": str, "metrics": {...} },
+            ...
+        ],
+        "count": int
+    }
+    """
+    portfolio_name = payload.get("portfolio_name")
+    candidates_requested = payload.get("candidates", [])[:3]  # cap at 3
+    horizon = payload.get("horizon", 2)
+    outlook = payload.get("outlook", "Neutral")
+    advisor_context = payload.get("advisor_context", {})
+
+    precalc = SESSION.get("precalc", {}).get(portfolio_name, {})
+    if not precalc:
+        raise HTTPException(status_code=404, detail="Portfolio not found or precalc not ready")
+
+    base_metrics = precalc.get("_base", {}).get(str(horizon), {})
+    all_candidates = precalc.get(outlook, {}).get(str(horizon), [])
+
+    # Resolve each requested candidate against precalc data
+    resolved = []
+    for req_cand in candidates_requested:
+        match = next(
+            (c for c in all_candidates
+             if c["note_id"] == req_cand["note_id"]
+             and abs(c["alloc_pct"] - req_cand["alloc_pct"]) < 0.01),
+            None
+        )
+        if match:
+            resolved.append(match)
+
+    if not resolved:
+        raise HTTPException(status_code=404, detail="No matching candidates found in precalc")
+
+    # Generate all narratives in parallel
+    option_labels = ["A", "B", "C"]
+
+    async def generate_one(candidate: dict, label: str) -> dict:
+        note_info = {
+            "note_type": candidate.get("note_type", "structured note"),
+            "alloc_pct": candidate.get("alloc_pct", 0.10) * 100,  # convert fraction to %
+            "protection_pct": candidate.get("protection_pct", 0)
+        }
+        narrative = await generate_narrative(
+            advisor_context=advisor_context,
+            base_metrics=base_metrics,
+            candidate_metrics=candidate.get("metrics", {}),
+            note_info=note_info,
+            horizon=horizon
+        )
+        return {
+            "option": label,
+            "note_id": candidate["note_id"],
+            "alloc_pct": candidate["alloc_pct"],
+            "narrative": narrative,
+            "metrics": candidate.get("metrics", {})
+        }
+
+    # Sequential generation behind a semaphore — prevents Ollama memory pressure
+    async def _do_generate():
+        results = []
+        for i, c in enumerate(resolved):
+            result = await generate_one(c, option_labels[i])
+            results.append(result)
+        return results
+
+    async with _narrative_lock:
+        try:
+            results = await asyncio.wait_for(_do_generate(), timeout=60.0)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Narrative generation timed out")
+
+    return {"narratives": results, "count": len(results)}
