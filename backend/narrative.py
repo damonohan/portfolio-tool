@@ -172,6 +172,7 @@ def _get_ollama_client() -> httpx.AsyncClient:
         _ollama_client = httpx.AsyncClient(
             timeout=30.0,
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
+            headers={"ngrok-skip-browser-warning": "true"},
         )
     return _ollama_client
 
